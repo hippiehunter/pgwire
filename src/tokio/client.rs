@@ -25,6 +25,9 @@ use crate::api::client::config::Host;
 use crate::api::client::query::SimpleQueryHandler;
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
+use crate::messages::copy::CopyData;
+use crate::messages::replication::{HotStandbyFeedback, ReplicationMessage, StandbyStatusUpdate};
+use crate::messages::simplequery::Query;
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
     SslNegotiationMetaMessage,
@@ -193,6 +196,97 @@ impl PgWireClient {
         }
 
         Err(PgWireClientError::UnexpectedEOF)
+    }
+
+    /// Send a replication command as a simple query and read the next message.
+    ///
+    /// This is a low-level building block. For IDENTIFY_SYSTEM etc., the response
+    /// will be RowDescription + DataRow + CommandComplete + ReadyForQuery. For
+    /// START_REPLICATION, the response will be CopyBothResponse.
+    ///
+    /// After calling `start_replication`, use `recv_replication_message()` and
+    /// `send_standby_status_update()` to drive the streaming phase.
+    pub async fn send_replication_command(
+        &mut self,
+        command: &str,
+    ) -> PgWireClientResult<()> {
+        let query = Query::new(command.to_owned());
+        self.socket
+            .send(PgWireFrontendMessage::Query(query))
+            .await?;
+        Ok(())
+    }
+
+    /// Receive the next replication streaming message (XLogData or PrimaryKeepalive).
+    ///
+    /// This should be called after START_REPLICATION has been sent and the
+    /// CopyBothResponse has been received. Returns `None` if the stream ends
+    /// (CopyDone received).
+    pub async fn recv_replication_message(
+        &mut self,
+    ) -> PgWireClientResult<Option<ReplicationMessage>> {
+        while let Some(message_result) = self.socket.next().await {
+            let message = message_result?;
+            match message {
+                PgWireBackendMessage::CopyData(copy_data) => {
+                    let repl_msg =
+                        ReplicationMessage::decode_from_bytes(copy_data.data)?;
+                    return Ok(Some(repl_msg));
+                }
+                PgWireBackendMessage::CopyDone(_) => {
+                    return Ok(None);
+                }
+                PgWireBackendMessage::ErrorResponse(error) => {
+                    let error_info = crate::error::ErrorInfo::from(error);
+                    return Err(error_info.into());
+                }
+                _ => {
+                    // Skip other messages (e.g., NoticeResponse)
+                    continue;
+                }
+            }
+        }
+        Err(PgWireClientError::UnexpectedEOF)
+    }
+
+    /// Send a StandbyStatusUpdate during the replication streaming phase.
+    pub async fn send_standby_status_update(
+        &mut self,
+        update: &StandbyStatusUpdate,
+    ) -> PgWireClientResult<()> {
+        let payload =
+            ReplicationMessage::StandbyStatusUpdate(*update).encode_to_bytes()?;
+        self.socket
+            .send(PgWireFrontendMessage::CopyData(CopyData::new(payload)))
+            .await?;
+        Ok(())
+    }
+
+    /// Send a HotStandbyFeedback during the replication streaming phase.
+    pub async fn send_hot_standby_feedback(
+        &mut self,
+        feedback: &HotStandbyFeedback,
+    ) -> PgWireClientResult<()> {
+        let payload =
+            ReplicationMessage::HotStandbyFeedback(*feedback).encode_to_bytes()?;
+        self.socket
+            .send(PgWireFrontendMessage::CopyData(CopyData::new(payload)))
+            .await?;
+        Ok(())
+    }
+
+    /// Read the next raw backend message from the connection.
+    ///
+    /// Useful for reading responses to replication commands (IDENTIFY_SYSTEM etc.)
+    /// before the streaming phase begins.
+    pub async fn recv_message(
+        &mut self,
+    ) -> PgWireClientResult<PgWireBackendMessage> {
+        match self.socket.next().await {
+            Some(Ok(msg)) => Ok(msg),
+            Some(Err(e)) => Err(e.into()),
+            None => Err(PgWireClientError::UnexpectedEOF),
+        }
     }
 }
 

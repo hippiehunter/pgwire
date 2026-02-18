@@ -66,6 +66,11 @@ pub enum PgWireError {
     OAuthValidationError(String),
     #[error("{0}")]
     OauthAuthzIdError(String),
+    #[error("Invalid replication message: {0}")]
+    InvalidReplicationMessage(String),
+    #[error("Invalid LSN format: {0}")]
+    InvalidLsnFormat(String),
+
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
@@ -321,6 +326,12 @@ impl From<PgWireError> for ErrorInfo {
             }
             PgWireError::InvalidSecretKey => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidReplicationMessage(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidLsnFormat(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::ApiError(_) => {
                 ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), error.to_string())

@@ -19,9 +19,15 @@ use crate::api::auth::StartupHandler;
 use crate::api::cancel::CancelHandler;
 use crate::api::copy::CopyHandler;
 use crate::api::query::{ExtendedQueryHandler, SimpleQueryHandler, send_ready_for_query};
+use crate::api::replication::{
+    self, ReplicationCommand, ReplicationHandler, decode_replication_client_message,
+    parse_replication_command, send_create_replication_slot_response,
+    send_identify_system_response, send_read_replication_slot_response,
+    send_timeline_history_response,
+};
 use crate::api::{
-    ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
-    PgWireServerHandlers,
+    ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, METADATA_REPLICATION,
+    PgWireConnectionState, PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::{GssEncResponse, ReadyForQuery, SslResponse, TransactionStatus};
@@ -161,7 +167,8 @@ impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     }
 }
 
-pub async fn process_message<S, A, Q, EQ, C, CR>(
+#[allow(clippy::too_many_arguments)]
+pub async fn process_message<S, A, Q, EQ, C, CR, R>(
     message: PgWireFrontendMessage,
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     authenticator: Arc<A>,
@@ -169,6 +176,7 @@ pub async fn process_message<S, A, Q, EQ, C, CR>(
     extended_query_handler: Arc<EQ>,
     copy_handler: Arc<C>,
     cancel_handler: Arc<CR>,
+    replication_handler: Arc<R>,
 ) -> PgWireResult<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
@@ -177,6 +185,7 @@ where
     EQ: ExtendedQueryHandler,
     C: CopyHandler,
     CR: CancelHandler,
+    R: ReplicationHandler,
 {
     // CancelRequest is from a dedicated connection, process it and close it.
     if let PgWireFrontendMessage::CancelRequest(cancel) = message {
@@ -200,6 +209,44 @@ where
                 extended_query_handler.on_sync(socket, sync).await?;
                 // TODO: confirm if we need to track transaction state there
                 socket.set_state(PgWireConnectionState::ReadyForQuery);
+            }
+        }
+        PgWireConnectionState::ReplicationStreaming => {
+            // During replication streaming, handle CopyData (client feedback),
+            // CopyDone (end streaming), and CopyFail.
+            match message {
+                PgWireFrontendMessage::CopyData(copy_data) => {
+                    let client_msg = decode_replication_client_message(&copy_data)?;
+                    match client_msg {
+                        replication::ReplicationClientMessage::StandbyStatusUpdate(ssu) => {
+                            replication_handler
+                                .on_standby_status_update(socket, ssu)
+                                .await?;
+                        }
+                        replication::ReplicationClientMessage::HotStandbyFeedback(hsf) => {
+                            replication_handler
+                                .on_hot_standby_feedback(socket, hsf)
+                                .await?;
+                        }
+                    }
+                }
+                PgWireFrontendMessage::CopyDone(_) => {
+                    // End of replication streaming
+                    socket.set_state(PgWireConnectionState::ReadyForQuery);
+                    send_ready_for_query(socket, TransactionStatus::Idle).await?;
+                }
+                PgWireFrontendMessage::CopyFail(copy_fail) => {
+                    socket.set_state(PgWireConnectionState::ReadyForQuery);
+                    return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "XX000".to_owned(),
+                        format!(
+                            "Replication streaming terminated by client: {}",
+                            copy_fail.message
+                        ),
+                    ))));
+                }
+                _ => {}
             }
         }
         PgWireConnectionState::CopyInProgress(is_extended_query) => {
@@ -252,7 +299,27 @@ where
             // query or query in progress
             match message {
                 PgWireFrontendMessage::Query(query) => {
-                    query_handler.on_query(socket, query).await?;
+                    // Check if this is a replication connection
+                    let is_replication = socket
+                        .metadata()
+                        .get(METADATA_REPLICATION)
+                        .is_some_and(|v| !v.is_empty() && v != "false");
+
+                    if is_replication {
+                        if let Some(cmd) = parse_replication_command(&query.query) {
+                            dispatch_replication_command(
+                                socket,
+                                &replication_handler,
+                                cmd,
+                            )
+                            .await?;
+                        } else {
+                            // Not a replication command — fall through to simple query
+                            query_handler.on_query(socket, query).await?;
+                        }
+                    } else {
+                        query_handler.on_query(socket, query).await?;
+                    }
                 }
                 PgWireFrontendMessage::Parse(parse) => {
                     extended_query_handler.on_parse(socket, parse).await?;
@@ -277,6 +344,68 @@ where
                 }
                 _ => {}
             }
+        }
+    }
+    Ok(())
+}
+
+async fn dispatch_replication_command<S, ST, R>(
+    socket: &mut Framed<S, PgWireMessageServerCodec<ST>>,
+    handler: &Arc<R>,
+    cmd: ReplicationCommand,
+) -> PgWireResult<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    ST: Send + Sync,
+    R: ReplicationHandler,
+{
+    match cmd {
+        ReplicationCommand::IdentifySystem => {
+            let resp = handler.on_identify_system(socket).await?;
+            send_identify_system_response(socket, &resp).await?;
+            send_ready_for_query(socket, TransactionStatus::Idle).await?;
+        }
+        ReplicationCommand::TimelineHistory { timeline } => {
+            let resp = handler.on_timeline_history(socket, timeline).await?;
+            send_timeline_history_response(socket, &resp).await?;
+            send_ready_for_query(socket, TransactionStatus::Idle).await?;
+        }
+        ReplicationCommand::CreateReplicationSlot {
+            slot_name,
+            temporary,
+            slot_type,
+            options,
+        } => {
+            let resp = handler
+                .on_create_replication_slot(socket, &slot_name, temporary, slot_type, &options)
+                .await?;
+            send_create_replication_slot_response(socket, &resp).await?;
+            send_ready_for_query(socket, TransactionStatus::Idle).await?;
+        }
+        ReplicationCommand::DropReplicationSlot { slot_name, wait } => {
+            handler
+                .on_drop_replication_slot(socket, &slot_name, wait)
+                .await?;
+            send_ready_for_query(socket, TransactionStatus::Idle).await?;
+        }
+        ReplicationCommand::ReadReplicationSlot { slot_name } => {
+            let resp = handler.on_read_replication_slot(socket, &slot_name).await?;
+            send_read_replication_slot_response(socket, &resp).await?;
+            send_ready_for_query(socket, TransactionStatus::Idle).await?;
+        }
+        ReplicationCommand::StartReplication(cmd) => {
+            // on_start_replication is responsible for sending CopyBothResponse
+            // and setting state to ReplicationStreaming
+            handler.on_start_replication(socket, &cmd).await?;
+        }
+        ReplicationCommand::AlterReplicationSlot {
+            slot_name,
+            options,
+        } => {
+            handler
+                .on_alter_replication_slot(socket, &slot_name, &options)
+                .await?;
+            send_ready_for_query(socket, TransactionStatus::Idle).await?;
         }
     }
     Ok(())
@@ -542,6 +671,7 @@ macro_rules! process_socket_messages {
         let copy_handler = $handlers.copy_handler();
         let cancel_handler = $handlers.cancel_handler();
         let error_handler = $handlers.error_handler();
+        let replication_handler = $handlers.replication_handler();
 
         let socket = &mut $socket;
         loop {
@@ -571,6 +701,7 @@ macro_rules! process_socket_messages {
                     extended_query_handler.clone(),
                     copy_handler.clone(),
                     cancel_handler.clone(),
+                    replication_handler.clone(),
                 )
                 .await
                 {

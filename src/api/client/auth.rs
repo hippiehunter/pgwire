@@ -124,6 +124,11 @@ impl StartupHandler for DefaultStartupHandler {
                 .parameters
                 .insert("database".to_string(), dbname.clone());
         }
+        if let Some(replication) = &config.replication {
+            startup
+                .parameters
+                .insert("replication".to_string(), replication.clone());
+        }
 
         client.send(PgWireFrontendMessage::Startup(startup)).await?;
         Ok(())

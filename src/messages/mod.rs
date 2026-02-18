@@ -149,6 +149,10 @@ pub mod simplequery;
 pub mod startup;
 /// Termination messages
 pub mod terminate;
+/// Logical replication event messages (inside XLogData payloads)
+pub mod logical_replication;
+/// Replication streaming messages (inside CopyData payloads)
+pub mod replication;
 
 #[derive(Debug)]
 pub enum SslNegotiationMetaMessage {

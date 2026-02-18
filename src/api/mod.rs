@@ -19,6 +19,7 @@ pub mod cancel;
 pub mod client;
 pub mod copy;
 pub mod portal;
+pub mod replication;
 pub mod query;
 pub mod results;
 pub mod stmt;
@@ -36,6 +37,7 @@ pub enum PgWireConnectionState {
     ReadyForQuery,
     QueryInProgress,
     CopyInProgress(bool),
+    ReplicationStreaming,
     AwaitingSync,
 }
 
@@ -84,6 +86,7 @@ pub const METADATA_USER: &str = "user";
 pub const METADATA_DATABASE: &str = "database";
 pub const METADATA_CLIENT_ENCODING: &str = "client_encoding";
 pub const METADATA_APPLICATION_NAME: &str = "application_name";
+pub const METADATA_REPLICATION: &str = "replication";
 
 #[non_exhaustive]
 #[derive(Debug)]
@@ -228,6 +231,10 @@ pub trait PgWireServerHandlers {
     fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
         Arc::new(NoopHandler)
     }
+
+    fn replication_handler(&self) -> Arc<impl replication::ReplicationHandler> {
+        Arc::new(NoopHandler)
+    }
 }
 
 impl<T> PgWireServerHandlers for Arc<T>
@@ -256,5 +263,9 @@ where
 
     fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
         (**self).cancel_handler()
+    }
+
+    fn replication_handler(&self) -> Arc<impl replication::ReplicationHandler> {
+        (**self).replication_handler()
     }
 }

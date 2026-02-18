@@ -222,6 +222,9 @@ pub struct Config {
     pub(crate) target_session_attrs: TargetSessionAttrs,
     pub(crate) channel_binding: ChannelBinding,
     pub(crate) load_balance_hosts: LoadBalanceHosts,
+    /// Replication mode: `None` for normal connections, `Some("true")` for
+    /// physical replication, `Some("database")` for logical replication.
+    pub(crate) replication: Option<String>,
 }
 
 impl Default for Config {
@@ -256,6 +259,7 @@ impl Config {
             target_session_attrs: TargetSessionAttrs::Any,
             channel_binding: ChannelBinding::Prefer,
             load_balance_hosts: LoadBalanceHosts::Disable,
+            replication: None,
         }
     }
 
@@ -551,6 +555,21 @@ impl Config {
         self.load_balance_hosts
     }
 
+    /// Sets the replication mode.
+    ///
+    /// Use `"true"` for physical replication or `"database"` for logical
+    /// replication. When set, the connection sends a `replication` startup
+    /// parameter, enabling replication commands.
+    pub fn replication(&mut self, replication: impl Into<String>) -> &mut Config {
+        self.replication = Some(replication.into());
+        self
+    }
+
+    /// Gets the replication mode, if configured.
+    pub fn get_replication(&self) -> Option<&str> {
+        self.replication.as_deref()
+    }
+
     fn param(&mut self, key: &str, value: &str) -> Result<(), PgWireClientError> {
         match key {
             "user" => {
@@ -567,6 +586,9 @@ impl Config {
             }
             "application_name" => {
                 self.application_name(value);
+            }
+            "replication" => {
+                self.replication(value);
             }
             "sslmode" => {
                 let mode = match value {
@@ -749,6 +771,7 @@ impl fmt::Debug for Config {
         config_dbg
             .field("target_session_attrs", &self.target_session_attrs)
             .field("channel_binding", &self.channel_binding)
+            .field("replication", &self.replication)
             .finish()
     }
 }
