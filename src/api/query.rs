@@ -25,12 +25,29 @@ use crate::messages::extendedquery::{
     Bind, BindComplete, Close, CloseComplete, Describe, Execute, Flush, Parse, ParseComplete,
     PortalSuspended, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
-use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
+use crate::messages::response::{
+    CommandComplete, EmptyQueryResponse, ReadyForQuery, TransactionStatus,
+};
 use crate::messages::simplequery::Query;
 
 fn is_empty_query(q: &str) -> bool {
     let trimmed_query = q.trim();
     trimmed_query == ";" || trimmed_query.is_empty()
+}
+
+fn build_query_command_complete(
+    command_tag: &str,
+    completion_tag: crate::api::results::QueryCompletionTag,
+    rows: usize,
+) -> CommandComplete {
+    match completion_tag {
+        crate::api::results::QueryCompletionTag::RowsAffected => {
+            CommandComplete::from(Tag::new(command_tag).with_rows(rows))
+        }
+        crate::api::results::QueryCompletionTag::Exact => {
+            CommandComplete::new(command_tag.to_owned())
+        }
+    }
 }
 
 /// handler for processing simple query.
@@ -514,6 +531,7 @@ where
 {
     let QueryResponse {
         command_tag,
+        completion_tag,
         row_schema,
         mut data_rows,
     } = results;
@@ -534,9 +552,10 @@ where
         client.feed(PgWireBackendMessage::DataRow(row)).await?;
     }
 
-    let tag = Tag::new(&command_tag).with_rows(rows);
     client
-        .send(PgWireBackendMessage::CommandComplete(tag.into()))
+        .send(PgWireBackendMessage::CommandComplete(
+            build_query_command_complete(&command_tag, completion_tag, rows),
+        ))
         .await?;
 
     Ok(())
@@ -553,6 +572,7 @@ where
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
     let command_tag = results.command_tag().to_string();
+    let completion_tag = results.completion_tag;
     let data_rows = results.data_rows();
 
     let mut rows = 0;
@@ -573,9 +593,10 @@ where
             .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
             .await?;
     } else {
-        let tag = Tag::new(&command_tag).with_rows(rows);
         client
-            .send(PgWireBackendMessage::CommandComplete(tag.into()))
+            .send(PgWireBackendMessage::CommandComplete(
+                build_query_command_complete(&command_tag, completion_tag, rows),
+            ))
             .await?;
     }
 

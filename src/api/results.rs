@@ -216,9 +216,17 @@ pub type SendableRowStream = Pin<Box<dyn Stream<Item = PgWireResult<DataRow>> + 
 
 pub type SendableCopyDataStream = Pin<Box<dyn Stream<Item = PgWireResult<CopyData>> + Send>>;
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub enum QueryCompletionTag {
+    #[default]
+    RowsAffected,
+    Exact,
+}
+
 #[non_exhaustive]
 pub struct QueryResponse {
     pub command_tag: String,
+    pub completion_tag: QueryCompletionTag,
     pub row_schema: Arc<Vec<FieldInfo>>,
     pub data_rows: SendableRowStream,
 }
@@ -241,6 +249,7 @@ impl QueryResponse {
     {
         QueryResponse {
             command_tag: "SELECT".to_owned(),
+            completion_tag: QueryCompletionTag::RowsAffected,
             row_schema: field_defs,
             data_rows: Box::pin(row_stream),
         }
@@ -254,6 +263,13 @@ impl QueryResponse {
     /// Set the command tag
     pub fn set_command_tag(&mut self, command_tag: &str) {
         command_tag.clone_into(&mut self.command_tag);
+        self.completion_tag = QueryCompletionTag::RowsAffected;
+    }
+
+    /// Set the command tag and preserve it exactly in CommandComplete.
+    pub fn set_exact_command_tag(&mut self, command_tag: &str) {
+        command_tag.clone_into(&mut self.command_tag);
+        self.completion_tag = QueryCompletionTag::Exact;
     }
 
     /// Get schema of columns
