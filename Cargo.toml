@@ -43,7 +43,7 @@ base64 = { version = "0.22", optional = true }
 ring = { version = "0.17", optional = true }
 aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
-x509-certificate = { version = "0.25", optional = true }
+x509-parser = { version = "0.16", optional = true }
 
 ## oauth
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"], optional = true }
@@ -73,7 +73,7 @@ _ring = [
   "dep:rustls-pki-types",
   "dep:base64",
   "dep:stringprep",
-  "dep:x509-certificate",
+  "dep:x509-parser",
 ]
 _aws-lc-rs = [
   "dep:aws-lc-rs",
@@ -81,7 +81,7 @@ _aws-lc-rs = [
   "dep:rustls-pki-types",
   "dep:base64",
   "dep:stringprep",
-  "dep:x509-certificate",
+  "dep:x509-parser",
 ]
 server-api = [
   "dep:tokio",

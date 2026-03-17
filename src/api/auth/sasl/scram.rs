@@ -9,8 +9,8 @@ use std::sync::Arc;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
-use x509_certificate::SignatureAlgorithm;
-use x509_certificate::certificate::CapturedX509Certificate;
+use x509_parser::pem::Pem;
+use x509_parser::prelude::*;
 
 use crate::api::ClientInfo;
 use crate::api::auth::{AuthSource, LoginInfo};
@@ -572,20 +572,25 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
 /// 3. if the certificate has 0 or more than 1 signature algorithm, the
 ///    behaviour is undefined at the time.
 pub(super) fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
-    let certs = CapturedX509Certificate::from_pem_multiple(cert)
+    let pem = Pem::iter_from_buffer(cert)
+        .next()
+        .ok_or(PgWireError::UnsupportedCertificateSignatureAlgorithm)?
         .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-    let x509 = &certs[0];
-    let raw = x509.constructed_data();
-    match x509.signature_algorithm() {
-        Some(SignatureAlgorithm::RsaSha1)
-        | Some(SignatureAlgorithm::RsaSha256)
-        | Some(SignatureAlgorithm::EcdsaSha256) => {
+    let raw = &pem.contents;
+    let (_, x509) = parse_x509_certificate(raw)
+        .map_err(|_| PgWireError::UnsupportedCertificateSignatureAlgorithm)?;
+    let oid = x509.signature_algorithm.algorithm.to_id_string();
+    match oid.as_str() {
+        // RSA-SHA1, RSA-SHA256, ECDSA-SHA256 → hash with SHA-256
+        "1.2.840.113549.1.1.5" | "1.2.840.113549.1.1.11" | "1.2.840.10045.4.3.2" => {
             Ok(digest::digest(&digest::SHA256, raw).as_ref().to_vec())
         }
-        Some(SignatureAlgorithm::RsaSha384) | Some(SignatureAlgorithm::EcdsaSha384) => {
+        // RSA-SHA384, ECDSA-SHA384 → hash with SHA-384
+        "1.2.840.113549.1.1.12" | "1.2.840.10045.4.3.3" => {
             Ok(digest::digest(&digest::SHA384, raw).as_ref().to_vec())
         }
-        Some(SignatureAlgorithm::RsaSha512) => {
+        // RSA-SHA512 → hash with SHA-512
+        "1.2.840.113549.1.1.13" => {
             Ok(digest::digest(&digest::SHA512, raw).as_ref().to_vec())
         }
         _ => Err(PgWireError::UnsupportedCertificateSignatureAlgorithm),
