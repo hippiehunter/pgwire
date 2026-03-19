@@ -8,7 +8,7 @@ use rsa::{
     pkcs8::{EncodePublicKey, LineEnding},
 };
 use serde::Deserialize;
-use tokio::sync::RwLock;
+use async_lock::RwLock;
 
 use crate::{
     api::auth::sasl::oauth::{OauthValidator, ValidatorModuleResult},

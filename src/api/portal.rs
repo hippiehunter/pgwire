@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use postgres_types::FromSqlOwned;
-use tokio::sync::Mutex;
+use async_lock::Mutex;
 
 use crate::api::Type;
 use crate::api::results::QueryResponse;

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
-use tokio::sync::Mutex;
+use async_lock::Mutex;
 
 use super::{
     AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,

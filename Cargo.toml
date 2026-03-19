@@ -35,6 +35,7 @@ rustls-pki-types = { version = "1.10", optional = true }
 futures = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 pin-project = { version = "1.1", optional = true }
+async-lock = { version = "3", optional = true }
 rand = { version = "0.10", optional = true }
 md5 = { version = "0.8", optional = true }
 hex = { version = "0.4", optional = true }
@@ -84,6 +85,7 @@ _aws-lc-rs = [
   "dep:x509-parser",
 ]
 server-api = [
+  "dep:async-lock",
   "dep:tokio",
   "dep:tokio-util",
   "dep:futures",
@@ -96,6 +98,7 @@ server-api = [
   "dep:pg_interval",
 ]
 simple-oidc-validator = [
+  "dep:async-lock",
   "dep:jsonwebtoken",
   "dep:rsa",
   "dep:reqwest",

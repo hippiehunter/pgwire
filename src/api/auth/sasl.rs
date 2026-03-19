@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{Sink, SinkExt};
-use tokio::sync::Mutex;
+use async_lock::Mutex;
 
 use crate::api::auth::Password;
 use crate::api::{ClientInfo, PgWireConnectionState};
