@@ -12,9 +12,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::sink::{Sink, SinkExt};
 
+use crate::api::results::Tag;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::PgWireBackendMessage;
-use crate::messages::copy::{CopyBothResponse, CopyData};
+use crate::messages::copy::{CopyBothResponse, CopyData, CopyDone};
 use crate::messages::data::{DataRow, FieldDescription, RowDescription};
 use crate::messages::replication::{
     HotStandbyFeedback, Lsn, PrimaryKeepalive, ReplicationMessage, StandbyStatusUpdate, XLogData,
@@ -79,10 +80,7 @@ pub enum ReplicationClientMessage {
 /// WAL data. This gives the implementor full control over the streaming loop.
 #[async_trait]
 pub trait ReplicationHandler: Send + Sync {
-    async fn on_identify_system<C>(
-        &self,
-        client: &mut C,
-    ) -> PgWireResult<IdentifySystemResponse>
+    async fn on_identify_system<C>(&self, client: &mut C) -> PgWireResult<IdentifySystemResponse>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -219,9 +217,9 @@ where
     send_text_data_row(client, &values).await?;
 
     client
-        .send(PgWireBackendMessage::CommandComplete(
-            CommandComplete::new("IDENTIFY_SYSTEM".to_owned()),
-        ))
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            "IDENTIFY_SYSTEM".to_owned(),
+        )))
         .await?;
     Ok(())
 }
@@ -255,9 +253,9 @@ where
     send_text_data_row(client, &values).await?;
 
     client
-        .send(PgWireBackendMessage::CommandComplete(
-            CommandComplete::new("CREATE_REPLICATION_SLOT".to_owned()),
-        ))
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            "CREATE_REPLICATION_SLOT".to_owned(),
+        )))
         .await?;
     Ok(())
 }
@@ -294,9 +292,9 @@ where
     send_text_data_row(client, &values).await?;
 
     client
-        .send(PgWireBackendMessage::CommandComplete(
-            CommandComplete::new("READ_REPLICATION_SLOT".to_owned()),
-        ))
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            "READ_REPLICATION_SLOT".to_owned(),
+        )))
         .await?;
     Ok(())
 }
@@ -323,9 +321,9 @@ where
     send_text_data_row(client, &values).await?;
 
     client
-        .send(PgWireBackendMessage::CommandComplete(
-            CommandComplete::new("TIMELINE_HISTORY".to_owned()),
-        ))
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            "TIMELINE_HISTORY".to_owned(),
+        )))
         .await?;
     Ok(())
 }
@@ -341,6 +339,30 @@ where
     let resp = CopyBothResponse::new(0, 0, vec![]);
     client
         .send(PgWireBackendMessage::CopyBothResponse(resp))
+        .await?;
+    Ok(())
+}
+
+/// Send the terminal backend messages that PostgreSQL emits when a client exits
+/// `START_REPLICATION ... LOGICAL` with `CopyDone`.
+pub async fn send_start_replication_complete<C>(client: &mut C) -> PgWireResult<()>
+where
+    C: Sink<PgWireBackendMessage> + Unpin,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    client
+        .send(PgWireBackendMessage::CopyDone(CopyDone::new()))
+        .await?;
+    client
+        .send(PgWireBackendMessage::CommandComplete(
+            Tag::new("COPY").with_rows(0).into(),
+        ))
+        .await?;
+    client
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            "START_REPLICATION".to_owned(),
+        )))
         .await?;
     Ok(())
 }
@@ -437,10 +459,7 @@ where
 
 #[async_trait]
 impl ReplicationHandler for super::NoopHandler {
-    async fn on_identify_system<C>(
-        &self,
-        _client: &mut C,
-    ) -> PgWireResult<IdentifySystemResponse>
+    async fn on_identify_system<C>(&self, _client: &mut C) -> PgWireResult<IdentifySystemResponse>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,

@@ -23,7 +23,7 @@ use crate::api::replication::{
     self, ReplicationCommand, ReplicationHandler, decode_replication_client_message,
     parse_replication_command, send_create_replication_slot_response,
     send_identify_system_response, send_read_replication_slot_response,
-    send_timeline_history_response,
+    send_start_replication_complete, send_timeline_history_response,
 };
 use crate::api::{
     ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, METADATA_REPLICATION,
@@ -231,7 +231,7 @@ where
                     }
                 }
                 PgWireFrontendMessage::CopyDone(_) => {
-                    // End of replication streaming
+                    send_start_replication_complete(socket).await?;
                     socket.set_state(PgWireConnectionState::ReadyForQuery);
                     send_ready_for_query(socket, TransactionStatus::Idle).await?;
                 }
@@ -307,12 +307,7 @@ where
 
                     if is_replication {
                         if let Some(cmd) = parse_replication_command(&query.query) {
-                            dispatch_replication_command(
-                                socket,
-                                &replication_handler,
-                                cmd,
-                            )
-                            .await?;
+                            dispatch_replication_command(socket, &replication_handler, cmd).await?;
                         } else {
                             // Not a replication command — fall through to simple query
                             query_handler.on_query(socket, query).await?;
@@ -398,10 +393,7 @@ where
             // and setting state to ReplicationStreaming
             handler.on_start_replication(socket, &cmd).await?;
         }
-        ReplicationCommand::AlterReplicationSlot {
-            slot_name,
-            options,
-        } => {
+        ReplicationCommand::AlterReplicationSlot { slot_name, options } => {
             handler
                 .on_alter_replication_slot(socket, &slot_name, &options)
                 .await?;

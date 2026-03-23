@@ -25,7 +25,7 @@ use crate::api::client::config::Host;
 use crate::api::client::query::SimpleQueryHandler;
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
-use crate::messages::copy::CopyData;
+use crate::messages::copy::{CopyData, CopyDone};
 use crate::messages::replication::{HotStandbyFeedback, ReplicationMessage, StandbyStatusUpdate};
 use crate::messages::simplequery::Query;
 use crate::messages::{
@@ -206,10 +206,7 @@ impl PgWireClient {
     ///
     /// After calling `start_replication`, use `recv_replication_message()` and
     /// `send_standby_status_update()` to drive the streaming phase.
-    pub async fn send_replication_command(
-        &mut self,
-        command: &str,
-    ) -> PgWireClientResult<()> {
+    pub async fn send_replication_command(&mut self, command: &str) -> PgWireClientResult<()> {
         let query = Query::new(command.to_owned());
         self.socket
             .send(PgWireFrontendMessage::Query(query))
@@ -229,8 +226,7 @@ impl PgWireClient {
             let message = message_result?;
             match message {
                 PgWireBackendMessage::CopyData(copy_data) => {
-                    let repl_msg =
-                        ReplicationMessage::decode_from_bytes(copy_data.data)?;
+                    let repl_msg = ReplicationMessage::decode_from_bytes(copy_data.data)?;
                     return Ok(Some(repl_msg));
                 }
                 PgWireBackendMessage::CopyDone(_) => {
@@ -254,8 +250,7 @@ impl PgWireClient {
         &mut self,
         update: &StandbyStatusUpdate,
     ) -> PgWireClientResult<()> {
-        let payload =
-            ReplicationMessage::StandbyStatusUpdate(*update).encode_to_bytes()?;
+        let payload = ReplicationMessage::StandbyStatusUpdate(*update).encode_to_bytes()?;
         self.socket
             .send(PgWireFrontendMessage::CopyData(CopyData::new(payload)))
             .await?;
@@ -267,10 +262,17 @@ impl PgWireClient {
         &mut self,
         feedback: &HotStandbyFeedback,
     ) -> PgWireClientResult<()> {
-        let payload =
-            ReplicationMessage::HotStandbyFeedback(*feedback).encode_to_bytes()?;
+        let payload = ReplicationMessage::HotStandbyFeedback(*feedback).encode_to_bytes()?;
         self.socket
             .send(PgWireFrontendMessage::CopyData(CopyData::new(payload)))
+            .await?;
+        Ok(())
+    }
+
+    /// Send `CopyDone` to terminate a replication CopyBoth stream.
+    pub async fn send_copy_done(&mut self) -> PgWireClientResult<()> {
+        self.socket
+            .send(PgWireFrontendMessage::CopyDone(CopyDone::new()))
             .await?;
         Ok(())
     }
@@ -279,9 +281,7 @@ impl PgWireClient {
     ///
     /// Useful for reading responses to replication commands (IDENTIFY_SYSTEM etc.)
     /// before the streaming phase begins.
-    pub async fn recv_message(
-        &mut self,
-    ) -> PgWireClientResult<PgWireBackendMessage> {
+    pub async fn recv_message(&mut self) -> PgWireClientResult<PgWireBackendMessage> {
         match self.socket.next().await {
             Some(Ok(msg)) => Ok(msg),
             Some(Err(e)) => Err(e.into()),

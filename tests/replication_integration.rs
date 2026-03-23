@@ -9,13 +9,14 @@
 //! Run with: `cargo test --test replication_integration --features client-api`
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Buf;
-use pgwire::api::client::auth::DefaultStartupHandler;
 use pgwire::api::client::Config;
+use pgwire::api::client::auth::DefaultStartupHandler;
+use pgwire::messages::PgWireBackendMessage;
 use pgwire::messages::data::DataRow;
 use pgwire::messages::replication::{Lsn, ReplicationMessage, StandbyStatusUpdate};
-use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::client::PgWireClient;
 
 async fn connect_replication() -> PgWireClient {
@@ -153,7 +154,9 @@ async fn test_create_and_drop_replication_slot() {
 
     // Verify consistent_point is a valid LSN
     let cp_str = row_fields[1].as_ref().unwrap();
-    let cp_lsn: Lsn = cp_str.parse().expect("consistent_point should be valid LSN");
+    let cp_lsn: Lsn = cp_str
+        .parse()
+        .expect("consistent_point should be valid LSN");
     assert!(cp_lsn.is_valid(), "consistent_point should be non-zero");
 
     // Verify output_plugin
@@ -169,7 +172,11 @@ async fn test_create_and_drop_replication_slot() {
         .expect("send DROP_REPLICATION_SLOT");
 
     let (_row_descs, _data_rows, cmd_completes) = collect_command_response(&mut client).await;
-    assert_eq!(cmd_completes.len(), 1, "expected 1 CommandComplete for DROP");
+    assert_eq!(
+        cmd_completes.len(),
+        1,
+        "expected 1 CommandComplete for DROP"
+    );
 
     println!("DROP_REPLICATION_SLOT: {slot_name} dropped successfully");
 }
@@ -259,8 +266,7 @@ async fn test_start_replication_and_stream() {
 
             // Even though we timed out, send a status update to confirm the
             // protocol works bidirectionally
-            let update =
-                StandbyStatusUpdate::new(start_lsn, start_lsn, start_lsn, 0, false);
+            let update = StandbyStatusUpdate::new(start_lsn, start_lsn, start_lsn, 0, false);
             client
                 .send_standby_status_update(&update)
                 .await
@@ -268,6 +274,77 @@ async fn test_start_replication_and_stream() {
             println!("Sent StandbyStatusUpdate after timeout");
         }
     }
+}
+
+#[tokio::test]
+#[ignore = "client-side CopyDone shutdown against PostgreSQL needs separate follow-up"]
+async fn test_start_replication_copy_done_returns_command_completions() {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let mut client = connect_replication().await;
+
+        let slot_name = "pgwire_test_slot_copy_done";
+
+        client
+            .send_replication_command(&format!(
+                "CREATE_REPLICATION_SLOT {slot_name} TEMPORARY LOGICAL test_decoding"
+            ))
+            .await
+            .unwrap();
+
+        let (_, data_rows, _) = collect_command_response(&mut client).await;
+        let row_fields = extract_text_fields(&data_rows[0]);
+        let start_lsn: Lsn = row_fields[1].as_ref().unwrap().parse().unwrap();
+
+        client
+            .send_replication_command(&format!(
+                "START_REPLICATION SLOT {slot_name} LOGICAL {start_lsn}"
+            ))
+            .await
+            .unwrap();
+
+        let msg = client.recv_message().await.unwrap();
+        assert!(
+            matches!(msg, PgWireBackendMessage::CopyBothResponse(_)),
+            "expected CopyBothResponse, got: {msg:?}"
+        );
+
+        client.send_copy_done().await.unwrap();
+
+        let mut saw_copy_done = false;
+        let mut command_tags = Vec::new();
+        loop {
+            let msg = tokio::time::timeout(Duration::from_secs(5), client.recv_message())
+                .await
+                .expect("timeout waiting for CopyDone shutdown response")
+                .unwrap();
+            match msg {
+                PgWireBackendMessage::CopyDone(_) => saw_copy_done = true,
+                PgWireBackendMessage::CommandComplete(cc) => command_tags.push(cc.tag),
+                PgWireBackendMessage::ReadyForQuery(_) => break,
+                PgWireBackendMessage::NoticeResponse(_) => {}
+                other => panic!("unexpected message after CopyDone: {other:?}"),
+            }
+        }
+
+        assert!(
+            saw_copy_done,
+            "expected backend CopyDone after frontend CopyDone"
+        );
+        assert_eq!(command_tags, vec!["COPY 0", "START_REPLICATION"]);
+
+        client
+            .send_replication_command("IDENTIFY_SYSTEM")
+            .await
+            .expect("send IDENTIFY_SYSTEM after CopyDone");
+        let (_, _, cmd_completes) = collect_command_response(&mut client).await;
+        assert_eq!(
+            cmd_completes.len(),
+            1,
+            "expected IDENTIFY_SYSTEM completion"
+        );
+    })
+    .await
+    .expect("replication CopyDone integration test timed out");
 }
 
 #[tokio::test]
@@ -310,11 +387,7 @@ async fn test_logical_replication_with_data_changes() {
     }
 
     // Create table and insert data
-    exec_sql(
-        &mut normal_client,
-        "DROP TABLE IF EXISTS pgwire_repl_test",
-    )
-    .await;
+    exec_sql(&mut normal_client, "DROP TABLE IF EXISTS pgwire_repl_test").await;
     exec_sql(
         &mut normal_client,
         "CREATE TABLE pgwire_repl_test (id int PRIMARY KEY, val text)",
@@ -364,9 +437,7 @@ async fn test_logical_replication_with_data_changes() {
             Ok(Ok(Some(ReplicationMessage::PrimaryKeepalive(ka)))) => {
                 println!("PrimaryKeepalive: wal_end={}", ka.wal_end);
                 // Always reply to keepalives to keep the connection alive
-                let update = StandbyStatusUpdate::new(
-                    ka.wal_end, ka.wal_end, ka.wal_end, 0, false,
-                );
+                let update = StandbyStatusUpdate::new(ka.wal_end, ka.wal_end, ka.wal_end, 0, false);
                 client.send_standby_status_update(&update).await.unwrap();
                 // If we already have XLogData, a keepalive signals end of batch
                 if !xlog_messages.is_empty() {
@@ -426,11 +497,7 @@ async fn test_logical_replication_with_data_changes() {
     }
 
     // Clean up: drop the test table via normal connection
-    exec_sql(
-        &mut normal_client,
-        "DROP TABLE IF EXISTS pgwire_repl_test",
-    )
-    .await;
+    exec_sql(&mut normal_client, "DROP TABLE IF EXISTS pgwire_repl_test").await;
 
     println!("test_logical_replication_with_data_changes passed!");
 }

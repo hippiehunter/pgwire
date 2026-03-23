@@ -215,10 +215,7 @@ fn parse_alter_replication_slot(tokens: &mut Tokenizer) -> Option<ReplicationCom
         options = parse_option_list(paren_opts);
     }
 
-    Some(ReplicationCommand::AlterReplicationSlot {
-        slot_name,
-        options,
-    })
+    Some(ReplicationCommand::AlterReplicationSlot { slot_name, options })
 }
 
 /// Parse a comma-separated option list like `key1 'value1', key2 'value2'`.
@@ -245,8 +242,7 @@ fn parse_option_list(s: &str) -> Vec<(String, Option<String>)> {
 /// Remove surrounding quotes from an identifier or string literal.
 fn unquote(s: &str) -> String {
     if s.len() >= 2
-        && ((s.starts_with('\'') && s.ends_with('\''))
-            || (s.starts_with('"') && s.ends_with('"')))
+        && ((s.starts_with('\'') && s.ends_with('\'')) || (s.starts_with('"') && s.ends_with('"')))
     {
         s[1..s.len() - 1].to_owned()
     } else {
@@ -307,9 +303,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while self.pos < self.input.len()
-            && self.input.as_bytes()[self.pos].is_ascii_whitespace()
-        {
+        while self.pos < self.input.len() && self.input.as_bytes()[self.pos].is_ascii_whitespace() {
             self.pos += 1;
         }
     }
@@ -546,9 +540,8 @@ mod tests {
 
     #[test]
     fn test_parse_option_list_preserves_commas_inside_quotes() {
-        let options = parse_option_list(
-            "proto_version '1', publication_names 'pub1, pub2', messages 'true'",
-        );
+        let options =
+            parse_option_list("proto_version '1', publication_names 'pub1, pub2', messages 'true'");
         assert_eq!(
             options,
             vec![
@@ -589,10 +582,7 @@ mod tests {
         )
         .unwrap();
         match cmd {
-            ReplicationCommand::AlterReplicationSlot {
-                slot_name,
-                options,
-            } => {
+            ReplicationCommand::AlterReplicationSlot { slot_name, options } => {
                 assert_eq!(slot_name, "myslot");
                 assert_eq!(options.len(), 2);
                 assert_eq!(options[0], ("failover".to_owned(), Some("true".to_owned())));
