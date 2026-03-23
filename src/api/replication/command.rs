@@ -228,7 +228,7 @@ fn parse_option_list(s: &str) -> Vec<(String, Option<String>)> {
         return options;
     }
 
-    for part in s.split(',') {
+    for part in split_top_level_commas(s) {
         let part = part.trim();
         if part.is_empty() {
             continue;
@@ -244,11 +244,55 @@ fn parse_option_list(s: &str) -> Vec<(String, Option<String>)> {
 
 /// Remove surrounding quotes from an identifier or string literal.
 fn unquote(s: &str) -> String {
-    if (s.starts_with('\'') && s.ends_with('\'')) || (s.starts_with('"') && s.ends_with('"')) {
+    if s.len() >= 2
+        && ((s.starts_with('\'') && s.ends_with('\''))
+            || (s.starts_with('"') && s.ends_with('"')))
+    {
         s[1..s.len() - 1].to_owned()
     } else {
         s.to_owned()
     }
+}
+
+fn split_top_level_commas(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut idx = 0usize;
+    let mut paren_depth = 0usize;
+    let mut quote: Option<u8> = None;
+    let bytes = s.as_bytes();
+
+    while idx < bytes.len() {
+        let byte = bytes[idx];
+        if let Some(active_quote) = quote {
+            if byte == active_quote {
+                if idx + 1 < bytes.len() && bytes[idx + 1] == active_quote {
+                    idx += 2;
+                    continue;
+                }
+                quote = None;
+            }
+            idx += 1;
+            continue;
+        }
+
+        match byte {
+            b'\'' | b'"' => {
+                quote = Some(byte);
+            }
+            b'(' => paren_depth += 1,
+            b')' => paren_depth = paren_depth.saturating_sub(1),
+            b',' if paren_depth == 0 => {
+                parts.push(&s[start..idx]);
+                start = idx + 1;
+            }
+            _ => {}
+        }
+        idx += 1;
+    }
+
+    parts.push(&s[start..]);
+    parts
 }
 
 /// Simple whitespace-aware tokenizer that respects quoted strings.
@@ -477,6 +521,45 @@ mod tests {
             }
             _ => panic!("expected StartReplication"),
         }
+    }
+
+    #[test]
+    fn test_start_replication_logical_with_multiple_publications() {
+        let cmd = parse_replication_command(
+            "START_REPLICATION SLOT myslot LOGICAL 0/1000000 (proto_version '1', publication_names 'pub1, pub2')",
+        )
+        .unwrap();
+        match cmd {
+            ReplicationCommand::StartReplication(sr) => {
+                assert!(sr.logical);
+                assert_eq!(sr.slot_name.as_deref(), Some("myslot"));
+                assert_eq!(sr.start_lsn, Lsn(0x0100_0000));
+                assert_eq!(sr.options.len(), 2);
+                assert_eq!(sr.options[0].0, "proto_version");
+                assert_eq!(sr.options[0].1.as_deref(), Some("1"));
+                assert_eq!(sr.options[1].0, "publication_names");
+                assert_eq!(sr.options[1].1.as_deref(), Some("pub1, pub2"));
+            }
+            _ => panic!("expected StartReplication"),
+        }
+    }
+
+    #[test]
+    fn test_parse_option_list_preserves_commas_inside_quotes() {
+        let options = parse_option_list(
+            "proto_version '1', publication_names 'pub1, pub2', messages 'true'",
+        );
+        assert_eq!(
+            options,
+            vec![
+                ("proto_version".to_owned(), Some("1".to_owned())),
+                (
+                    "publication_names".to_owned(),
+                    Some("pub1, pub2".to_owned())
+                ),
+                ("messages".to_owned(), Some("true".to_owned())),
+            ]
+        );
     }
 
     #[test]
