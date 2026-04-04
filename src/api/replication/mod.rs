@@ -399,6 +399,35 @@ where
     Ok(())
 }
 
+/// Send a BASE_BACKUP WAL position result set (1 row with recptr + tli).
+pub async fn send_base_backup_wal_position<C>(
+    client: &mut C,
+    lsn: &str,
+    timeline: u32,
+) -> PgWireResult<()>
+where
+    C: Sink<PgWireBackendMessage> + Unpin,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let mut row_desc = RowDescription::default();
+    row_desc.fields.push(text_field("recptr"));
+    row_desc.fields.push(text_field("tli"));
+    client
+        .send(PgWireBackendMessage::RowDescription(row_desc))
+        .await?;
+
+    let tli_str = timeline.to_string();
+    send_text_data_row(client, &[Some(lsn), Some(&tli_str)]).await?;
+
+    client
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            "BASE_BACKUP".to_owned(),
+        )))
+        .await?;
+    Ok(())
+}
+
 /// Send a CopyBothResponse to begin the replication streaming phase.
 pub async fn send_copy_both_for_replication<C>(client: &mut C) -> PgWireResult<()>
 where
