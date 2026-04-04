@@ -30,6 +30,18 @@ pub struct StartReplicationCommand {
     pub options: Vec<(String, Option<String>)>,
 }
 
+/// The BASE_BACKUP command with parsed options.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BaseBackupCommand {
+    pub label: Option<String>,
+    pub progress: bool,
+    pub checkpoint: Option<String>,
+    pub wait: Option<u32>,
+    pub target: Option<String>,
+    pub manifest: Option<String>,
+}
+
 /// Parsed replication command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReplicationCommand {
@@ -55,6 +67,7 @@ pub enum ReplicationCommand {
         slot_name: String,
         options: Vec<(String, Option<String>)>,
     },
+    BaseBackup(BaseBackupCommand),
 }
 
 /// Parse a replication command from a SQL query string.
@@ -83,6 +96,7 @@ pub fn parse_replication_command(query: &str) -> Option<ReplicationCommand> {
         }
         "START_REPLICATION" => parse_start_replication(&mut tokens),
         "ALTER_REPLICATION_SLOT" => parse_alter_replication_slot(&mut tokens),
+        "BASE_BACKUP" => parse_base_backup(&mut tokens),
         _ => None,
     }
 }
@@ -216,6 +230,54 @@ fn parse_alter_replication_slot(tokens: &mut Tokenizer) -> Option<ReplicationCom
     }
 
     Some(ReplicationCommand::AlterReplicationSlot { slot_name, options })
+}
+
+fn parse_base_backup(tokens: &mut Tokenizer) -> Option<ReplicationCommand> {
+    let mut cmd = BaseBackupCommand::default();
+    let rest = tokens.rest().trim();
+
+    if rest.starts_with('(') {
+        // v2 syntax: BASE_BACKUP (LABEL 'x', PROGRESS, CHECKPOINT 'fast', ...)
+        let inner = rest
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .trim();
+        for opt in split_top_level_commas(inner) {
+            let opt = opt.trim();
+            if opt.is_empty() {
+                continue;
+            }
+            let mut t = Tokenizer::new(opt);
+            if let Some(key) = t.next_token() {
+                let value = t.next_token().map(|v| unquote(&v));
+                match key.to_ascii_uppercase().as_str() {
+                    "LABEL" => cmd.label = value,
+                    "PROGRESS" => cmd.progress = true,
+                    "CHECKPOINT" => cmd.checkpoint = value,
+                    "WAIT" => cmd.wait = value.and_then(|v| v.parse().ok()),
+                    "TARGET" => cmd.target = value,
+                    "MANIFEST" => cmd.manifest = value,
+                    _ => {}
+                }
+            }
+        }
+    } else {
+        // Legacy syntax: BASE_BACKUP LABEL 'x' FAST PROGRESS WAL NOWAIT ...
+        while let Some(tok) = tokens.next_token() {
+            match tok.to_ascii_uppercase().as_str() {
+                "LABEL" => cmd.label = tokens.next_token().map(|v| unquote(&v)),
+                "PROGRESS" => cmd.progress = true,
+                "FAST" => cmd.checkpoint = Some("fast".to_owned()),
+                "SPREAD" => cmd.checkpoint = Some("spread".to_owned()),
+                "NOWAIT" => cmd.wait = Some(0),
+                "WAL" | "NOWAL" | "MAX_RATE" | "TABLESPACE_MAP" | "NOVERIFY_CHECKSUMS"
+                | "MANIFEST" | "MANIFEST_CHECKSUMS" => {}
+                _ => {}
+            }
+        }
+    }
+
+    Some(ReplicationCommand::BaseBackup(cmd))
 }
 
 /// Parse a comma-separated option list like `key1 'value1', key2 'value2'`.
@@ -610,5 +672,48 @@ mod tests {
     fn test_whitespace_variations() {
         let cmd = parse_replication_command("  IDENTIFY_SYSTEM  ").unwrap();
         assert_eq!(cmd, ReplicationCommand::IdentifySystem);
+    }
+
+    #[test]
+    fn test_base_backup_v2_syntax() {
+        let cmd = parse_replication_command(
+            "BASE_BACKUP (LABEL 'test_backup', PROGRESS, CHECKPOINT 'fast', WAIT 0)",
+        )
+        .unwrap();
+        match cmd {
+            ReplicationCommand::BaseBackup(bb) => {
+                assert_eq!(bb.label.as_deref(), Some("test_backup"));
+                assert!(bb.progress);
+                assert_eq!(bb.checkpoint.as_deref(), Some("fast"));
+                assert_eq!(bb.wait, Some(0));
+            }
+            _ => panic!("expected BaseBackup"),
+        }
+    }
+
+    #[test]
+    fn test_base_backup_legacy_syntax() {
+        let cmd =
+            parse_replication_command("BASE_BACKUP LABEL 'test_backup' FAST PROGRESS").unwrap();
+        match cmd {
+            ReplicationCommand::BaseBackup(bb) => {
+                assert_eq!(bb.label.as_deref(), Some("test_backup"));
+                assert!(bb.progress);
+                assert_eq!(bb.checkpoint.as_deref(), Some("fast"));
+            }
+            _ => panic!("expected BaseBackup"),
+        }
+    }
+
+    #[test]
+    fn test_base_backup_minimal() {
+        let cmd = parse_replication_command("BASE_BACKUP").unwrap();
+        match cmd {
+            ReplicationCommand::BaseBackup(bb) => {
+                assert_eq!(bb.label, None);
+                assert!(!bb.progress);
+            }
+            _ => panic!("expected BaseBackup"),
+        }
     }
 }

@@ -399,6 +399,10 @@ where
                 .await?;
             send_ready_for_query(socket, TransactionStatus::Idle).await?;
         }
+        ReplicationCommand::BaseBackup(cmd) => {
+            handler.on_base_backup(socket, &cmd).await?;
+            send_ready_for_query(socket, TransactionStatus::Idle).await?;
+        }
     }
     Ok(())
 }

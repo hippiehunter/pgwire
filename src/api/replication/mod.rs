@@ -25,7 +25,8 @@ use crate::messages::response::CommandComplete;
 use super::ClientInfo;
 
 pub use command::{
-    ReplicationCommand, SlotType, StartReplicationCommand, parse_replication_command,
+    BaseBackupCommand, ReplicationCommand, SlotType, StartReplicationCommand,
+    parse_replication_command,
 };
 
 /// Response for IDENTIFY_SYSTEM.
@@ -156,6 +157,22 @@ pub trait ReplicationHandler: Send + Sync {
         client: &mut C,
         slot_name: &str,
         options: &[(String, Option<String>)],
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+
+    /// Handle BASE_BACKUP.
+    ///
+    /// The handler owns the full response sequence: tablespace header
+    /// (RowDescription + DataRow(s) + CommandComplete), then for each
+    /// tablespace a CopyOut stream of tar data, and optionally a manifest.
+    /// The dispatch layer sends ReadyForQuery after this returns.
+    async fn on_base_backup<C>(
+        &self,
+        client: &mut C,
+        cmd: &BaseBackupCommand,
     ) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -323,6 +340,60 @@ where
     client
         .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
             "TIMELINE_HISTORY".to_owned(),
+        )))
+        .await?;
+    Ok(())
+}
+
+/// Send the BASE_BACKUP tablespace header: RowDescription + DataRow(s) + CommandComplete.
+///
+/// Each entry is (spcoid, spclocation, size). Use `None` for the base tablespace.
+pub async fn send_base_backup_tablespace_header<C>(
+    client: &mut C,
+    tablespaces: &[(Option<String>, Option<String>, Option<i64>)],
+) -> PgWireResult<()>
+where
+    C: Sink<PgWireBackendMessage> + Unpin,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    use crate::messages::data::FORMAT_CODE_TEXT;
+
+    let mut row_desc = RowDescription::default();
+    row_desc.fields.push(FieldDescription {
+        name: "spcoid".into(),
+        table_id: 0,
+        column_id: 0,
+        type_id: 26, // OID
+        type_size: 4,
+        type_modifier: -1,
+        format_code: FORMAT_CODE_TEXT,
+    });
+    row_desc.fields.push(text_field("spclocation"));
+    row_desc.fields.push(FieldDescription {
+        name: "size".into(),
+        table_id: 0,
+        column_id: 0,
+        type_id: 20, // INT8
+        type_size: 8,
+        type_modifier: -1,
+        format_code: FORMAT_CODE_TEXT,
+    });
+    client
+        .send(PgWireBackendMessage::RowDescription(row_desc))
+        .await?;
+
+    for (spcoid, spclocation, size) in tablespaces {
+        let spcoid_str = spcoid.as_deref();
+        let spcloc_str = spclocation.as_deref();
+        let size_string = size.map(|s| s.to_string());
+        let size_str = size_string.as_deref();
+        send_text_data_row(client, &[spcoid_str, spcloc_str, size_str]).await?;
+    }
+
+    client
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            "BASE_BACKUP".to_owned(),
         )))
         .await?;
     Ok(())
@@ -542,6 +613,19 @@ impl ReplicationHandler for super::NoopHandler {
         _client: &mut C,
         _slot_name: &str,
         _options: &[(String, Option<String>)],
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Err(not_implemented())
+    }
+
+    async fn on_base_backup<C>(
+        &self,
+        _client: &mut C,
+        _cmd: &BaseBackupCommand,
     ) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
