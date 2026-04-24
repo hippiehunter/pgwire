@@ -41,7 +41,7 @@ pub(crate) const LARGE_PACKET_SIZE_LIMIT: usize = 0x3fffffff - 1;
 pub(crate) const SMALL_PACKET_SIZE_LIMIT: usize = 10000;
 // libpq has a limit on backend message length, except those
 // VALID_LONG_MESSAGE_TYPE
-pub(crate) const SMALL_BACKEND_PACKET_SIZE_LIMIT: usize = 30000;
+pub(crate) const SMALL_BACKEND_PACKET_SIZE_LIMIT: usize = 1_048_576;
 pub(crate) const LONG_BACKEND_PACKET_SIZE_LIMIT: usize = i32::MAX as usize;
 
 #[non_exhaustive]
