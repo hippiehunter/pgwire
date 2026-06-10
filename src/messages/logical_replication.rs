@@ -235,6 +235,11 @@ pub struct UpdateBody {
     /// columns include key columns.
     pub old_tuple: Option<TupleData>,
     pub new_tuple: TupleData,
+    /// When true, `old_tuple` carries only the replica-identity key columns
+    /// (non-key columns NULL) and is framed with the `K` marker; otherwise it is
+    /// a full prior image framed with `O`. Defaults to full-image (`O`).
+    #[new(default)]
+    pub old_tuple_key_only: bool,
 }
 
 /// Delete body.
@@ -243,6 +248,11 @@ pub struct UpdateBody {
 pub struct DeleteBody {
     pub relation_id: u32,
     pub old_tuple: TupleData,
+    /// When true, `old_tuple` carries only the replica-identity key columns
+    /// (non-key columns NULL), framed with the `K` marker; otherwise a full prior
+    /// image framed with `O`. Defaults to full-image (`O`).
+    #[new(default)]
+    pub old_tuple_key_only: bool,
 }
 
 /// Truncate body.
@@ -431,7 +441,7 @@ impl LogicalReplicationMessage {
                 buf.put_u8(b'U');
                 buf.put_u32(msg.relation_id);
                 if let Some(old) = &msg.old_tuple {
-                    buf.put_u8(b'O'); // old tuple marker
+                    buf.put_u8(if msg.old_tuple_key_only { b'K' } else { b'O' });
                     old.encode(&mut buf);
                 }
                 buf.put_u8(b'N'); // new tuple marker
@@ -440,7 +450,7 @@ impl LogicalReplicationMessage {
             LogicalReplicationMessage::Delete(msg) => {
                 buf.put_u8(b'D');
                 buf.put_u32(msg.relation_id);
-                buf.put_u8(b'O'); // old tuple marker
+                buf.put_u8(if msg.old_tuple_key_only { b'K' } else { b'O' });
                 msg.old_tuple.encode(&mut buf);
             }
             LogicalReplicationMessage::Truncate(msg) => {
@@ -626,16 +636,18 @@ impl LogicalReplicationMessage {
                     relation_id,
                     old_tuple,
                     new_tuple,
+                    old_tuple_key_only: marker == b'K',
                 }))
             }
             b'D' => {
                 ensure_remaining(&buf, 5, "DeleteBody")?;
                 let relation_id = buf.get_u32();
-                let _old_marker = buf.get_u8(); // 'O' or 'K'
+                let old_marker = buf.get_u8(); // 'O' or 'K'
                 let old_tuple = TupleData::decode(&mut buf)?;
                 Ok(LogicalReplicationMessage::Delete(DeleteBody {
                     relation_id,
                     old_tuple,
+                    old_tuple_key_only: old_marker == b'K',
                 }))
             }
             b'T' => {
@@ -897,6 +909,24 @@ mod tests {
                 TupleDataColumn::Text(Bytes::from("1")),
                 TupleDataColumn::Text(Bytes::from("bob")),
             ]),
+            old_tuple_key_only: false,
+        }));
+    }
+
+    #[test]
+    fn test_update_key_only_old_roundtrip() {
+        // Key-only old tuple (DEFAULT/INDEX identity) is framed with the 'K' marker.
+        roundtrip(&LogicalReplicationMessage::Update(UpdateBody {
+            relation_id: 16384,
+            old_tuple: Some(TupleData::new(vec![
+                TupleDataColumn::Text(Bytes::from("1")),
+                TupleDataColumn::Null,
+            ])),
+            new_tuple: TupleData::new(vec![
+                TupleDataColumn::Text(Bytes::from("1")),
+                TupleDataColumn::Text(Bytes::from("bob")),
+            ]),
+            old_tuple_key_only: true,
         }));
     }
 
@@ -909,6 +939,7 @@ mod tests {
                 TupleDataColumn::Text(Bytes::from("1")),
                 TupleDataColumn::Text(Bytes::from("bob")),
             ]),
+            old_tuple_key_only: false,
         }));
     }
 
@@ -917,6 +948,19 @@ mod tests {
         roundtrip(&LogicalReplicationMessage::Delete(DeleteBody {
             relation_id: 16384,
             old_tuple: TupleData::new(vec![TupleDataColumn::Text(Bytes::from("1"))]),
+            old_tuple_key_only: false,
+        }));
+    }
+
+    #[test]
+    fn test_delete_key_only_roundtrip() {
+        roundtrip(&LogicalReplicationMessage::Delete(DeleteBody {
+            relation_id: 16384,
+            old_tuple: TupleData::new(vec![
+                TupleDataColumn::Text(Bytes::from("1")),
+                TupleDataColumn::Null,
+            ]),
+            old_tuple_key_only: true,
         }));
     }
 
