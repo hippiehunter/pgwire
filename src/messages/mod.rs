@@ -635,7 +635,9 @@ mod test {
         let cc = CommandComplete::new("DELETE 5".to_owned());
         roundtrip!(cc, CommandComplete, &ctx);
 
-        let cc = CommandComplete::new("DELETE 5".repeat(10_000));
+        // A tag exceeding SMALL_BACKEND_PACKET_SIZE_LIMIT (1MB) must fail to
+        // encode. "DELETE 5" is 8 bytes, so 200,000 repeats is ~1.6MB.
+        let cc = CommandComplete::new("DELETE 5".repeat(200_000));
         let mut buffer = BytesMut::new();
         assert!(cc.encode(&mut buffer).is_err());
     }
