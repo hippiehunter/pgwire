@@ -148,6 +148,11 @@ pub struct FieldInfo {
     format: FieldFormat,
     #[new(value = "DEFAULT_FORMAT_OPTIONS.with(|opts| Arc::clone(&*opts))")]
     format_options: Arc<FormatOptions>,
+    // PostgreSQL atttypmod for the RowDescription. -1 means "no type modifier";
+    // set via `with_type_modifier` where the declared facet (varchar length,
+    // numeric precision/scale, temporal precision) is known.
+    #[new(value = "-1")]
+    type_modifier: i32,
 }
 
 impl FieldInfo {
@@ -179,6 +184,15 @@ impl FieldInfo {
         self.format_options = format_options;
         self
     }
+
+    pub fn type_modifier(&self) -> i32 {
+        self.type_modifier
+    }
+
+    pub fn with_type_modifier(mut self, type_modifier: i32) -> Self {
+        self.type_modifier = type_modifier;
+        self
+    }
 }
 
 impl From<&FieldInfo> for FieldDescription {
@@ -188,9 +202,9 @@ impl From<&FieldInfo> for FieldDescription {
             fi.table_id.unwrap_or(0),  // table_id
             fi.column_id.unwrap_or(0), // column_id
             fi.datatype.oid(),         // type_id
-            // TODO: type size and modifier
+            // TODO: type size
             0,
-            0,
+            fi.type_modifier,          // type_modifier (atttypmod)
             fi.format.value(),
         )
     }
@@ -205,6 +219,7 @@ impl From<FieldDescription> for FieldInfo {
             Type::from_oid(value.type_id).unwrap_or(Type::UNKNOWN),
             FieldFormat::from(value.format_code),
         )
+        .with_type_modifier(value.type_modifier)
     }
 }
 
