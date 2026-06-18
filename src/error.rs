@@ -90,7 +90,7 @@ pub type PgWireResult<T> = Result<T, PgWireError>;
 // This part of protocol is defined in
 // https://www.postgresql.org/docs/8.2/protocol-error-fields.html
 #[non_exhaustive]
-#[derive(new, Debug, Default)]
+#[derive(new, Debug, Default, Clone)]
 pub struct ErrorInfo {
     // severity can be one of `ERROR`, `FATAL`, or `PANIC` (in an error
     // message), or `WARNING`, `NOTICE`, `DEBUG`, `INFO`, or `LOG` (in a notice
@@ -133,6 +133,22 @@ pub struct ErrorInfo {
     // Routine: the name of the source-code routine reporting the error.
     #[new(default)]
     pub routine: Option<String>,
+    // Schema name: if the error was associated with a specific database object,
+    // the name of the schema containing that object.
+    #[new(default)]
+    pub schema_name: Option<String>,
+    // Table name: if the error was associated with a specific table.
+    #[new(default)]
+    pub table_name: Option<String>,
+    // Column name: if the error was associated with a specific table column.
+    #[new(default)]
+    pub column_name: Option<String>,
+    // Data type name: if the error was associated with a specific data type.
+    #[new(default)]
+    pub data_type_name: Option<String>,
+    // Constraint name: if the error was associated with a specific constraint.
+    #[new(default)]
+    pub constraint_name: Option<String>,
 }
 
 impl Display for ErrorInfo {
@@ -147,7 +163,7 @@ impl Display for ErrorInfo {
 
 impl ErrorInfo {
     fn into_fields(self) -> Vec<(u8, String)> {
-        let mut fields = Vec::with_capacity(11);
+        let mut fields = Vec::with_capacity(16);
 
         fields.push((b'S', self.severity));
         fields.push((b'C', self.code));
@@ -178,6 +194,21 @@ impl ErrorInfo {
         }
         if let Some(value) = self.routine {
             fields.push((b'R', value));
+        }
+        if let Some(value) = self.schema_name {
+            fields.push((b's', value));
+        }
+        if let Some(value) = self.table_name {
+            fields.push((b't', value));
+        }
+        if let Some(value) = self.column_name {
+            fields.push((b'c', value));
+        }
+        if let Some(value) = self.data_type_name {
+            fields.push((b'd', value));
+        }
+        if let Some(value) = self.constraint_name {
+            fields.push((b'n', value));
         }
 
         fields
@@ -235,6 +266,21 @@ impl From<ErrorResponse> for ErrorInfo {
                 }
                 b'R' => {
                     error_info.routine = Some(value);
+                }
+                b's' => {
+                    error_info.schema_name = Some(value);
+                }
+                b't' => {
+                    error_info.table_name = Some(value);
+                }
+                b'c' => {
+                    error_info.column_name = Some(value);
+                }
+                b'd' => {
+                    error_info.data_type_name = Some(value);
+                }
+                b'n' => {
+                    error_info.constraint_name = Some(value);
                 }
                 _ => {}
             }
