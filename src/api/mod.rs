@@ -207,32 +207,36 @@ pub struct NoopHandler;
 
 impl ErrorHandler for NoopHandler {}
 
+/// Factory for a connection's handler set. The returned handlers are
+/// `'static` — they own their state (typically behind `Arc`) rather than
+/// borrowing from the factory, so a server can carry them across a
+/// connection's lifetime and between threads.
 pub trait PgWireServerHandlers {
-    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler + 'static> {
         Arc::new(NoopHandler)
     }
 
-    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler + 'static> {
         Arc::new(NoopHandler)
     }
 
-    fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl auth::StartupHandler + 'static> {
         Arc::new(NoopHandler)
     }
 
-    fn copy_handler(&self) -> Arc<impl copy::CopyHandler> {
+    fn copy_handler(&self) -> Arc<impl copy::CopyHandler + 'static> {
         Arc::new(NoopHandler)
     }
 
-    fn error_handler(&self) -> Arc<impl ErrorHandler> {
+    fn error_handler(&self) -> Arc<impl ErrorHandler + 'static> {
         Arc::new(NoopHandler)
     }
 
-    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
+    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler + 'static> {
         Arc::new(NoopHandler)
     }
 
-    fn replication_handler(&self) -> Arc<impl replication::ReplicationHandler> {
+    fn replication_handler(&self) -> Arc<impl replication::ReplicationHandler + 'static> {
         Arc::new(NoopHandler)
     }
 }
@@ -241,31 +245,31 @@ impl<T> PgWireServerHandlers for Arc<T>
 where
     T: PgWireServerHandlers,
 {
-    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler + 'static> {
         (**self).simple_query_handler()
     }
 
-    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler + 'static> {
         (**self).extended_query_handler()
     }
 
-    fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl auth::StartupHandler + 'static> {
         (**self).startup_handler()
     }
 
-    fn copy_handler(&self) -> Arc<impl copy::CopyHandler> {
+    fn copy_handler(&self) -> Arc<impl copy::CopyHandler + 'static> {
         (**self).copy_handler()
     }
 
-    fn error_handler(&self) -> Arc<impl ErrorHandler> {
+    fn error_handler(&self) -> Arc<impl ErrorHandler + 'static> {
         (**self).error_handler()
     }
 
-    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
+    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler + 'static> {
         (**self).cancel_handler()
     }
 
-    fn replication_handler(&self) -> Arc<impl replication::ReplicationHandler> {
+    fn replication_handler(&self) -> Arc<impl replication::ReplicationHandler + 'static> {
         (**self).replication_handler()
     }
 }
