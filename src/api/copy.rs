@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
 use std::fmt::Debug;
@@ -13,23 +12,25 @@ use super::ClientInfo;
 use super::results::{CopyResponse, Tag};
 
 /// handler for copy messages
-#[async_trait]
+///
+/// The client parameter is deliberately not `Send`; see `SimpleQueryHandler`.
+#[allow(async_fn_in_trait)]
 pub trait CopyHandler: Send + Sync {
     async fn on_copy_data<C>(&self, _client: &mut C, _copy_data: CopyData) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
     async fn on_copy_done<C>(&self, _client: &mut C, _done: CopyDone) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
     async fn on_copy_fail<C>(&self, _client: &mut C, fail: CopyFail) -> PgWireError
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -161,11 +162,10 @@ where
     Ok(())
 }
 
-#[async_trait]
 impl CopyHandler for super::NoopHandler {
     async fn on_copy_data<C>(&self, _client: &mut C, _copy_data: CopyData) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -178,7 +178,7 @@ impl CopyHandler for super::NoopHandler {
 
     async fn on_copy_done<C>(&self, _client: &mut C, _done: CopyDone) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {

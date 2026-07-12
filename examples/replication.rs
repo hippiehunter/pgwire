@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures::sink::{Sink, SinkExt};
 use tokio::net::TcpListener;
@@ -10,7 +9,8 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::auth::StartupHandler;
 use pgwire::api::replication::{
     CreateReplicationSlotResponse, IdentifySystemResponse, ReadReplicationSlotResponse,
-    ReplicationHandler, SlotType, StartReplicationCommand, TimelineHistoryResponse,
+    BaseBackupCommand, ReplicationHandler, SlotType, StartReplicationCommand,
+    TimelineHistoryResponse,
     send_copy_both_for_replication, send_primary_keepalive, send_xlog_data,
 };
 use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers};
@@ -26,14 +26,13 @@ pub struct DummyReplicationHandler;
 // Use the noop startup handler for simple auth (no password)
 impl NoopStartupHandler for DummyReplicationHandler {}
 
-#[async_trait]
 impl ReplicationHandler for DummyReplicationHandler {
     async fn on_identify_system<C>(
         &self,
         _client: &mut C,
     ) -> PgWireResult<IdentifySystemResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -52,7 +51,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         timeline: u32,
     ) -> PgWireResult<TimelineHistoryResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -72,7 +71,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         options: &[(String, Option<String>)],
     ) -> PgWireResult<CreateReplicationSlotResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -97,7 +96,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         wait: bool,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -111,7 +110,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         slot_name: &str,
     ) -> PgWireResult<ReadReplicationSlotResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -123,13 +122,29 @@ impl ReplicationHandler for DummyReplicationHandler {
         ))
     }
 
+    async fn on_base_backup<C>(
+        &self,
+        _client: &mut C,
+        cmd: &BaseBackupCommand,
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        println!("BASE_BACKUP {:?}", cmd);
+        Err(PgWireError::ApiError(
+            "BASE_BACKUP is not supported by this example".into(),
+        ))
+    }
+
     async fn on_start_replication<C>(
         &self,
         client: &mut C,
         cmd: &StartReplicationCommand,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -175,7 +190,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         options: &[(String, Option<String>)],
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -189,7 +204,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         update: StandbyStatusUpdate,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -206,7 +221,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         feedback: HotStandbyFeedback,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -232,8 +247,14 @@ impl PgWireServerHandlers for ReplicationServerFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let factory = Arc::new(ReplicationServerFactory {
         handler: Arc::new(DummyReplicationHandler),
     });
@@ -245,6 +266,6 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
-        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
+        tokio::task::spawn_local(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

@@ -17,7 +17,11 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersi
 use crate::types::format::FormatOptions;
 
 /// Handles startup process and frontend messages
-#[async_trait]
+///
+/// The client parameter is deliberately not `Send`: the returned future is
+/// only `Send` when the concrete client (and implementation) are, which lets
+/// thread-affine servers drive connections that never cross threads.
+#[allow(async_fn_in_trait)]
 pub trait StartupHandler: Send + Sync {
     /// A generic frontend message callback during startup phase.
     async fn on_startup<C>(
@@ -26,7 +30,7 @@ pub trait StartupHandler: Send + Sync {
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }

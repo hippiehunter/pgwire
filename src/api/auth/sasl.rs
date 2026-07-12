@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::{Sink, SinkExt};
 use async_lock::Mutex;
 
@@ -55,7 +54,6 @@ pub struct SASLAuthStartupHandler<P> {
     oauth: Option<oauth::Oauth>,
 }
 
-#[async_trait]
 impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
     async fn on_startup<C>(
         &self,
@@ -63,7 +61,7 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {

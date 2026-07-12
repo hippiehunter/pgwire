@@ -3,12 +3,12 @@
 /// 1. Install libq-oauth: sudo apt-get install libpq-oauth
 /// 2. Setup keycloak. check this for more details: https://habr.com/en/companies/tantor/articles/959776/
 /// 3. Execute: psql "postgres://postgres@localhost:5432/postgres?oauth_issuer=http://localhost:8080/realms/postgres-realm&oauth_client_id=postgres-client&oauth_client_secret=<my-client-secret>"
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
@@ -280,8 +280,14 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let factory = Arc::new(DummyProcessorFactory);
 
     let server_addr = "127.0.0.1:5432";
@@ -294,7 +300,7 @@ pub async fn main() {
 
         let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
         });
     }

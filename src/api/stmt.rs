@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::Sink;
 use postgres_types::Type;
 
@@ -31,7 +30,7 @@ impl<S> StoredStatement<S> {
         parser: Q,
     ) -> PgWireResult<StoredStatement<S>>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         Q: QueryParser<Statement = S>,
     {
         let types = parse
@@ -53,7 +52,9 @@ impl<S> StoredStatement<S> {
 
 /// Trait for sql parser. The parser transforms string query into its statement
 /// type.
-#[async_trait]
+///
+/// The client parameter is deliberately not `Send`; see `SimpleQueryHandler`.
+#[allow(async_fn_in_trait)]
 pub trait QueryParser {
     type Statement;
 
@@ -68,7 +69,7 @@ pub trait QueryParser {
         types: &[Option<Type>],
     ) -> PgWireResult<Self::Statement>
     where
-        C: ClientInfo + Unpin + Send + Sync;
+        C: ClientInfo + Unpin;
 
     /// Get parameter type information from parsed statement
     ///
@@ -89,7 +90,6 @@ pub trait QueryParser {
     ) -> PgWireResult<Vec<FieldInfo>>;
 }
 
-#[async_trait]
 impl<QP> QueryParser for Arc<QP>
 where
     QP: QueryParser + Send + Sync,
@@ -103,7 +103,7 @@ where
         types: &[Option<Type>],
     ) -> PgWireResult<Self::Statement>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         (**self).parse_sql(client, sql, types).await
     }
@@ -125,7 +125,6 @@ where
 #[derive(new, Debug, Default)]
 pub struct NoopQueryParser;
 
-#[async_trait]
 impl QueryParser for NoopQueryParser {
     type Statement = String;
 
@@ -136,7 +135,7 @@ impl QueryParser for NoopQueryParser {
         _types: &[Option<Type>],
     ) -> PgWireResult<Self::Statement>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         Ok(sql.to_owned())
     }

@@ -45,8 +45,14 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let iss = "http://localhost:8080/realms/postgres-realm";
     let validator = SimpleOidcValidator::new(iss)
         .await
@@ -75,7 +81,7 @@ pub async fn main() {
 
         let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
         });
     }

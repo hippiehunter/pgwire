@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 use async_lock::Mutex;
 
@@ -29,7 +28,6 @@ impl<A, P> Md5PasswordAuthStartupHandler<A, P> {
     }
 }
 
-#[async_trait]
 impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     for Md5PasswordAuthStartupHandler<A, P>
 {
@@ -39,7 +37,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {

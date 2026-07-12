@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
 use super::{ClientInfo, DefaultServerParameterProvider, StartupHandler};
@@ -9,15 +8,19 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
-#[async_trait]
-pub trait NoopStartupHandler: StartupHandler {
+/// Marker trait for handlers that skip authentication. The blanket impl
+/// below provides `StartupHandler` for every implementor; a supertrait
+/// bound here would make that impl's opaque return type normalize through
+/// its own where-clause (a cycle async-fn-in-trait cannot express).
+#[allow(async_fn_in_trait)]
+pub trait NoopStartupHandler: Send + Sync {
     async fn post_startup<C>(
         &self,
         _client: &mut C,
         _message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -25,7 +28,6 @@ pub trait NoopStartupHandler: StartupHandler {
     }
 }
 
-#[async_trait]
 impl<H> StartupHandler for H
 where
     H: NoopStartupHandler,
@@ -36,7 +38,7 @@ where
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {

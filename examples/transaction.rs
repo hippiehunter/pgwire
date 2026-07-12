@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::{Sink, SinkExt, stream};
 use pgwire::api::auth::StartupHandler;
 use tokio::net::TcpListener;
@@ -17,7 +16,6 @@ use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
 
-#[async_trait]
 impl NoopStartupHandler for DummyProcessor {
     async fn post_startup<C>(
         &self,
@@ -25,7 +23,7 @@ impl NoopStartupHandler for DummyProcessor {
         _message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -44,11 +42,10 @@ impl NoopStartupHandler for DummyProcessor {
     }
 }
 
-#[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -96,8 +93,14 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let factory = Arc::new(DummyProcessorFactory {
         handler: Arc::new(DummyProcessor),
     });
@@ -108,6 +111,6 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
-        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
+        tokio::task::spawn_local(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

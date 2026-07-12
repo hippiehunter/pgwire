@@ -2,8 +2,8 @@ use std::fs::{self, File};
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 
+use async_trait::async_trait;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
@@ -75,8 +75,14 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let cert = fs::read("examples/ssl/server.crt").unwrap();
     let factory = Arc::new(DummyProcessorFactory { cert });
 
@@ -90,7 +96,7 @@ pub async fn main() {
 
         let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
         });
     }

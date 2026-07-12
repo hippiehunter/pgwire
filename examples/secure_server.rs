@@ -44,8 +44,14 @@ impl PgWireServerHandlers for common::DummyProcessorFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let factory = Arc::new(common::DummyProcessorFactory::new());
 
     let server_addr = "127.0.0.1:5433";
@@ -57,7 +63,7 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         let tls_acceptor_ref = tls_acceptor.clone();
         let factory_ref = factory.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
         });
     }

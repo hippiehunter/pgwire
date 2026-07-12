@@ -113,7 +113,7 @@ impl ScramAuth {
         state: &SASLState,
     ) -> PgWireResult<(Authentication, SASLState)>
     where
-        C: ClientInfo + Unpin + Send,
+        C: ClientInfo + Unpin,
     {
         match state {
             &SASLState::ScramClientFirstReceived => {

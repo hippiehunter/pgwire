@@ -266,7 +266,7 @@ impl Oauth {
         state: &SASLState,
     ) -> PgWireResult<(Option<Authentication>, SASLState)>
     where
-        C: ClientInfo + Unpin + Send,
+        C: ClientInfo + Unpin,
     {
         match state {
             SASLState::OauthStateInit => {

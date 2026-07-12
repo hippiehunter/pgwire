@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::{Sink, StreamExt, stream};
 
 use pgwire::api::auth::noop::NoopStartupHandler;
@@ -13,7 +12,6 @@ use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 pub struct DummyProcessor;
 
-#[async_trait]
 impl NoopStartupHandler for DummyProcessor {
     async fn post_startup<C>(
         &self,
@@ -21,7 +19,7 @@ impl NoopStartupHandler for DummyProcessor {
         _message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -37,11 +35,10 @@ impl NoopStartupHandler for DummyProcessor {
     }
 }
 
-#[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         println!("{:?}", query);
         if query.starts_with("SELECT") {

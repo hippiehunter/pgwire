@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
 use futures::stream;
 use gluesql::prelude::*;
 use pgwire::types::format::FormatOptions;
@@ -16,11 +15,10 @@ pub struct GluesqlProcessor {
     glue: Arc<Mutex<Glue<MemoryStorage>>>,
 }
 
-#[async_trait]
 impl SimpleQueryHandler for GluesqlProcessor {
     async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         println!("{:?}", query);
         let mut glue = self.glue.lock().unwrap();
@@ -177,8 +175,14 @@ impl PgWireServerHandlers for GluesqlHandlerFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let gluesql = GluesqlProcessor {
         glue: Arc::new(Mutex::new(Glue::new(MemoryStorage::default()))),
     };
@@ -194,6 +198,6 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
 
-        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
+        tokio::task::spawn_local(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

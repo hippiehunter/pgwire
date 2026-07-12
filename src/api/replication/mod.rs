@@ -8,7 +8,6 @@ pub mod command;
 
 use std::fmt::Debug;
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures::sink::{Sink, SinkExt};
 
@@ -79,11 +78,12 @@ pub enum ReplicationClientMessage {
 /// `on_start_replication` is responsible for sending `CopyBothResponse`,
 /// setting connection state to `ReplicationStreaming`, and beginning to stream
 /// WAL data. This gives the implementor full control over the streaming loop.
-#[async_trait]
+/// The client parameter is deliberately not `Send`; see `SimpleQueryHandler`.
+#[allow(async_fn_in_trait)]
 pub trait ReplicationHandler: Send + Sync {
     async fn on_identify_system<C>(&self, client: &mut C) -> PgWireResult<IdentifySystemResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -93,7 +93,7 @@ pub trait ReplicationHandler: Send + Sync {
         timeline: u32,
     ) -> PgWireResult<TimelineHistoryResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -106,7 +106,7 @@ pub trait ReplicationHandler: Send + Sync {
         options: &[(String, Option<String>)],
     ) -> PgWireResult<CreateReplicationSlotResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -117,7 +117,7 @@ pub trait ReplicationHandler: Send + Sync {
         wait: bool,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -127,7 +127,7 @@ pub trait ReplicationHandler: Send + Sync {
         slot_name: &str,
     ) -> PgWireResult<ReadReplicationSlotResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -148,7 +148,7 @@ pub trait ReplicationHandler: Send + Sync {
         cmd: &StartReplicationCommand,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -159,7 +159,7 @@ pub trait ReplicationHandler: Send + Sync {
         options: &[(String, Option<String>)],
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -175,7 +175,7 @@ pub trait ReplicationHandler: Send + Sync {
         cmd: &BaseBackupCommand,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -186,7 +186,7 @@ pub trait ReplicationHandler: Send + Sync {
         update: StandbyStatusUpdate,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -197,7 +197,7 @@ pub trait ReplicationHandler: Send + Sync {
         feedback: HotStandbyFeedback,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
@@ -557,11 +557,10 @@ where
 
 // --- NoopHandler impl ---
 
-#[async_trait]
 impl ReplicationHandler for super::NoopHandler {
     async fn on_identify_system<C>(&self, _client: &mut C) -> PgWireResult<IdentifySystemResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -574,7 +573,7 @@ impl ReplicationHandler for super::NoopHandler {
         _timeline: u32,
     ) -> PgWireResult<TimelineHistoryResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -590,7 +589,7 @@ impl ReplicationHandler for super::NoopHandler {
         _options: &[(String, Option<String>)],
     ) -> PgWireResult<CreateReplicationSlotResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -604,7 +603,7 @@ impl ReplicationHandler for super::NoopHandler {
         _wait: bool,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -617,7 +616,7 @@ impl ReplicationHandler for super::NoopHandler {
         _slot_name: &str,
     ) -> PgWireResult<ReadReplicationSlotResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -630,7 +629,7 @@ impl ReplicationHandler for super::NoopHandler {
         _cmd: &StartReplicationCommand,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -644,7 +643,7 @@ impl ReplicationHandler for super::NoopHandler {
         _options: &[(String, Option<String>)],
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -657,7 +656,7 @@ impl ReplicationHandler for super::NoopHandler {
         _cmd: &BaseBackupCommand,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -670,7 +669,7 @@ impl ReplicationHandler for super::NoopHandler {
         _update: StandbyStatusUpdate,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -683,7 +682,7 @@ impl ReplicationHandler for super::NoopHandler {
         _feedback: HotStandbyFeedback,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {

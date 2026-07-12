@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
 use futures::{Stream, stream};
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Rows, Statement, ToSql};
@@ -30,7 +29,6 @@ pub struct SqliteBackend {
 #[derive(Debug)]
 struct DummyAuthSource;
 
-#[async_trait]
 impl AuthSource for DummyAuthSource {
     async fn get_password(&self, login_info: &LoginInfo) -> PgWireResult<Password> {
         println!("login info: {:?}", login_info);
@@ -44,11 +42,10 @@ impl AuthSource for DummyAuthSource {
     }
 }
 
-#[async_trait]
 impl SimpleQueryHandler for SqliteBackend {
     async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         let conn = self.conn.lock().unwrap();
         if query.to_uppercase().starts_with("SELECT") {
@@ -191,7 +188,6 @@ fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
     results
 }
 
-#[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
     type Statement = String;
     type QueryParser = NoopQueryParser;
@@ -207,7 +203,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         _max_rows: usize,
     ) -> PgWireResult<Response>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         let conn = self.conn.lock().unwrap();
         let query = &portal.statement.statement;
@@ -241,7 +237,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         stmt: &StoredStatement<Self::Statement>,
     ) -> PgWireResult<DescribeStatementResponse>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         let conn = self.conn.lock().unwrap();
         let param_types = stmt
@@ -262,7 +258,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         portal: &Portal<Self::Statement>,
     ) -> PgWireResult<DescribePortalResponse>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         let conn = self.conn.lock().unwrap();
         let stmt = conn
@@ -305,8 +301,14 @@ impl PgWireServerHandlers for SqliteBackendFactory {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let factory = Arc::new(SqliteBackendFactory {
         handler: Arc::new(SqliteBackend::new()),
     });
@@ -318,6 +320,6 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
 
-        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
+        tokio::task::spawn_local(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

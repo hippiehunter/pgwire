@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
 use super::{
@@ -17,7 +16,6 @@ pub struct CleartextPasswordAuthStartupHandler<A, P> {
     parameter_provider: P,
 }
 
-#[async_trait]
 impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
     for CleartextPasswordAuthStartupHandler<V, P>
 {
@@ -27,7 +25,7 @@ impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {

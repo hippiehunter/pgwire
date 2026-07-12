@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use tokio::net::TcpListener;
 
@@ -12,11 +11,10 @@ use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
 
-#[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<C>(&self, _client: &mut C, _query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Unpin,
     {
         let f1 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
         let f2 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
@@ -69,8 +67,14 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
+#[tokio::main(flavor = "current_thread")]
 pub async fn main() {
+    // Handler futures are only `Send` for `Send` clients; these demos
+    // drive every connection on the accept thread via a LocalSet.
+    tokio::task::LocalSet::new().run_until(main_impl()).await
+}
+
+async fn main_impl() {
     let factory = Arc::new(DummyProcessorFactory {
         handler: Arc::new(DummyProcessor),
     });
@@ -82,6 +86,6 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
 
-        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
+        tokio::task::spawn_local(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }
