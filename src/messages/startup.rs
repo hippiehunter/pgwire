@@ -119,16 +119,16 @@ pub enum Authentication {
     KerberosV5,           // code 2
     MD5Password(Vec<u8>), // code 5, with 4 bytes of md5 salt
 
+    GSS,                // code 7, begin a GSSAPI negotiation
+    GSSContinue(Bytes), // code 8, with GSSAPI/SSPI context establishment data
+    SSPI,               // code 9, begin an SSPI negotiation
+
     SASL(Vec<String>),   // code 10, with server supported sasl mechanisms
     SASLContinue(Bytes), // code 11, with authentication data
     SASLFinal(Bytes),    // code 12, with additional authentication data
 
                          // TODO: more types
                          // AuthenticationSCMCredential
-                         //
-                         // AuthenticationGSS
-                         // AuthenticationGSSContinue
-                         // AuthenticationSSPI
 }
 
 pub const MESSAGE_TYPE_BYTE_AUTHENTICATION: u8 = b'R';
@@ -147,10 +147,13 @@ impl Message for Authentication {
     #[inline]
     fn message_length(&self) -> usize {
         match self {
-            Authentication::Ok | Authentication::CleartextPassword | Authentication::KerberosV5 => {
-                8
-            }
+            Authentication::Ok
+            | Authentication::CleartextPassword
+            | Authentication::KerberosV5
+            | Authentication::GSS
+            | Authentication::SSPI => 8,
             Authentication::MD5Password(_) => 12,
+            Authentication::GSSContinue(data) => 8 + data.len(),
             Authentication::SASL(methods) => {
                 8 + methods.iter().map(|v| v.len() + 1).sum::<usize>() + 1
             }
@@ -168,6 +171,12 @@ impl Message for Authentication {
                 buf.put_i32(5);
                 buf.put_slice(salt.as_ref());
             }
+            Authentication::GSS => buf.put_i32(7),
+            Authentication::GSSContinue(data) => {
+                buf.put_i32(8);
+                buf.put_slice(data.as_ref());
+            }
+            Authentication::SSPI => buf.put_i32(9),
             Authentication::SASL(methods) => {
                 buf.put_i32(10);
                 for method in methods {
@@ -199,6 +208,9 @@ impl Message for Authentication {
                 buf.copy_to_slice(&mut salt_vec);
                 Authentication::MD5Password(salt_vec)
             }
+            7 => Authentication::GSS,
+            8 => Authentication::GSSContinue(buf.split_to(msg_len - 8).freeze()),
+            9 => Authentication::SSPI,
             10 => {
                 let mut methods = Vec::new();
                 while let Some(method) = codec::get_cstring(buf) {
@@ -244,6 +256,8 @@ pub enum PasswordMessageFamily {
     SASLInitialResponse(SASLInitialResponse),
     /// SASLResponse
     SASLResponse(SASLResponse),
+    /// GSSResponse
+    GSSResponse(GSSResponse),
 }
 
 impl Message for PasswordMessageFamily {
@@ -257,6 +271,7 @@ impl Message for PasswordMessageFamily {
             PasswordMessageFamily::Password(inner) => inner.message_length(),
             PasswordMessageFamily::SASLInitialResponse(inner) => inner.message_length(),
             PasswordMessageFamily::SASLResponse(inner) => inner.message_length(),
+            PasswordMessageFamily::GSSResponse(inner) => inner.message_length(),
         }
     }
 
@@ -269,6 +284,7 @@ impl Message for PasswordMessageFamily {
             PasswordMessageFamily::Password(inner) => inner.encode_body(buf),
             PasswordMessageFamily::SASLInitialResponse(inner) => inner.encode_body(buf),
             PasswordMessageFamily::SASLResponse(inner) => inner.encode_body(buf),
+            PasswordMessageFamily::GSSResponse(inner) => inner.encode_body(buf),
         }
     }
 
@@ -315,6 +331,18 @@ impl PasswordMessageFamily {
                 SASLResponse::decode_body(&mut body, len, &DecodeContext::default())
             }
             PasswordMessageFamily::SASLResponse(msg) => Ok(msg),
+            _ => Err(PgWireError::FailedToCoercePasswordMessage),
+        }
+    }
+
+    /// Coerce the raw message into `GSSResponse`
+    pub fn into_gss_response(self) -> PgWireResult<GSSResponse> {
+        match self {
+            PasswordMessageFamily::Raw(mut body) => {
+                let len = body.len() + 4;
+                GSSResponse::decode_body(&mut body, len, &DecodeContext::default())
+            }
+            PasswordMessageFamily::GSSResponse(msg) => Ok(msg),
             _ => Err(PgWireError::FailedToCoercePasswordMessage),
         }
     }
@@ -718,6 +746,41 @@ impl Message for SASLResponse {
     ) -> PgWireResult<Self> {
         let data = buf.split_to(full_len - 4).freeze();
         Ok(SASLResponse { data })
+    }
+}
+
+/// A GSSAPI or SSPI context establishment token, sent by the frontend in
+/// response to `Authentication::GSS`, `Authentication::SSPI`, or
+/// `Authentication::GSSContinue`.
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, new)]
+pub struct GSSResponse {
+    pub data: Bytes,
+}
+
+impl Message for GSSResponse {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        4 + self.data.len()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_slice(self.data.as_ref());
+        Ok(())
+    }
+
+    fn decode_body(
+        buf: &mut BytesMut,
+        full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
+        let data = buf.split_to(full_len - 4).freeze();
+        Ok(GSSResponse { data })
     }
 }
 

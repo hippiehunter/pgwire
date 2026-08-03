@@ -587,6 +587,10 @@ mod test {
             Authentication::KerberosV5,
             Authentication::SASLContinue(Bytes::from("hello")),
             Authentication::SASLFinal(Bytes::from("world")),
+            Authentication::GSS,
+            Authentication::SSPI,
+            Authentication::GSSContinue(Bytes::from_static(&[0x60, 0x82, 0x01, 0x00])),
+            Authentication::GSSContinue(Bytes::new()),
         ];
         for s in ss {
             roundtrip!(s, Authentication, &ctx);
@@ -594,6 +598,39 @@ mod test {
 
         let md5pass = Authentication::MD5Password(vec![b'p', b's', b't', b'g']);
         roundtrip!(md5pass, Authentication, &ctx);
+    }
+
+    #[test]
+    fn test_gss_response() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
+
+        let s = GSSResponse::new(Bytes::from_static(&[0x60, 0x1e, 0x06, 0x09, 0x2a]));
+        roundtrip!(s, GSSResponse, &ctx);
+    }
+
+    /// A frontend 'p' packet decodes as `Raw`; a GSSAPI startup handler
+    /// coerces it into the concrete token message.
+    #[test]
+    fn test_password_message_family_into_gss_response() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
+
+        let token = Bytes::from_static(&[0x60, 0x1e, 0x06, 0x09, 0x2a]);
+        let mut buffer = BytesMut::new();
+        GSSResponse::new(token.clone())
+            .encode(&mut buffer)
+            .expect("encode packet");
+
+        let family = PasswordMessageFamily::decode(&mut buffer, &ctx)
+            .expect("decode packet")
+            .expect("packet is none");
+        assert!(matches!(family, PasswordMessageFamily::Raw(_)));
+
+        let gss = family.into_gss_response().expect("coerce to GSSResponse");
+        assert_eq!(gss.data, token);
     }
 
     #[test]
