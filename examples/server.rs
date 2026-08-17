@@ -35,6 +35,8 @@ async fn main_impl() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
-        tokio::task::spawn_local(async move { process_socket(incoming_socket.0, None, factory_ref).await });
+        tokio::task::spawn_local(async move {
+            process_socket(incoming_socket.0, None, factory_ref).await
+        });
     }
 }

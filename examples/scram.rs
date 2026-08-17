@@ -2,7 +2,6 @@ use std::fs::{self, File};
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
-
 use async_trait::async_trait;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};

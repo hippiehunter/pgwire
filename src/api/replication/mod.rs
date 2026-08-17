@@ -169,11 +169,7 @@ pub trait ReplicationHandler: Send + Sync {
     /// (RowDescription + DataRow(s) + CommandComplete), then for each
     /// tablespace a CopyOut stream of tar data, and optionally a manifest.
     /// The dispatch layer sends ReadyForQuery after this returns.
-    async fn on_base_backup<C>(
-        &self,
-        client: &mut C,
-        cmd: &BaseBackupCommand,
-    ) -> PgWireResult<()>
+    async fn on_base_backup<C>(&self, client: &mut C, cmd: &BaseBackupCommand) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
@@ -650,11 +646,7 @@ impl ReplicationHandler for super::NoopHandler {
         Err(not_implemented())
     }
 
-    async fn on_base_backup<C>(
-        &self,
-        _client: &mut C,
-        _cmd: &BaseBackupCommand,
-    ) -> PgWireResult<()>
+    async fn on_base_backup<C>(&self, _client: &mut C, _cmd: &BaseBackupCommand) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,

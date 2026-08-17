@@ -158,12 +158,9 @@ impl TupleData {
 
 // Helper to read a null-terminated string from Bytes
 fn get_cstring(buf: &mut Bytes) -> PgWireResult<String> {
-    let pos = buf
-        .iter()
-        .position(|&b| b == 0)
-        .ok_or_else(|| {
-            PgWireError::InvalidReplicationMessage("missing null terminator in string".to_owned())
-        })?;
+    let pos = buf.iter().position(|&b| b == 0).ok_or_else(|| {
+        PgWireError::InvalidReplicationMessage("missing null terminator in string".to_owned())
+    })?;
     let s = String::from_utf8(buf.split_to(pos).to_vec()).map_err(|_| {
         PgWireError::InvalidReplicationMessage("invalid UTF-8 in string".to_owned())
     })?;
@@ -1037,15 +1034,13 @@ mod tests {
 
     #[test]
     fn test_begin_prepare_roundtrip() {
-        roundtrip(&LogicalReplicationMessage::BeginPrepare(
-            BeginPrepareBody {
-                prepare_lsn: Lsn(0x0100_0000),
-                end_lsn: Lsn(0x0100_0100),
-                prepare_time: 737_000_000_000_000,
-                xid: 42,
-                gid: "my_gid".to_owned(),
-            },
-        ));
+        roundtrip(&LogicalReplicationMessage::BeginPrepare(BeginPrepareBody {
+            prepare_lsn: Lsn(0x0100_0000),
+            end_lsn: Lsn(0x0100_0100),
+            prepare_time: 737_000_000_000_000,
+            xid: 42,
+            gid: "my_gid".to_owned(),
+        }));
     }
 
     #[test]
@@ -1104,9 +1099,9 @@ mod tests {
     fn test_tuple_data_binary() {
         roundtrip(&LogicalReplicationMessage::Insert(InsertBody {
             relation_id: 16384,
-            tuple: TupleData::new(vec![TupleDataColumn::Binary(Bytes::from(
-                vec![0x00, 0x01, 0x02, 0xFF],
-            ))]),
+            tuple: TupleData::new(vec![TupleDataColumn::Binary(Bytes::from(vec![
+                0x00, 0x01, 0x02, 0xFF,
+            ]))]),
         }));
     }
 

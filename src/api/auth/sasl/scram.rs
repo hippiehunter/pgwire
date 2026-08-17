@@ -590,9 +590,7 @@ pub(super) fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
             Ok(digest::digest(&digest::SHA384, raw).as_ref().to_vec())
         }
         // RSA-SHA512 → hash with SHA-512
-        "1.2.840.113549.1.1.13" => {
-            Ok(digest::digest(&digest::SHA512, raw).as_ref().to_vec())
-        }
+        "1.2.840.113549.1.1.13" => Ok(digest::digest(&digest::SHA512, raw).as_ref().to_vec()),
         _ => Err(PgWireError::UnsupportedCertificateSignatureAlgorithm),
     }
 }

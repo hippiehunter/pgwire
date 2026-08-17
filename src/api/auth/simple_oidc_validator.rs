@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use async_lock::RwLock;
 use async_trait::async_trait;
 use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
@@ -8,7 +9,6 @@ use rsa::{
     pkcs8::{EncodePublicKey, LineEnding},
 };
 use serde::Deserialize;
-use async_lock::RwLock;
 
 use crate::{
     api::auth::sasl::oauth::{OauthValidator, ValidatorModuleResult},

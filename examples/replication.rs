@@ -5,13 +5,13 @@ use bytes::Bytes;
 use futures::sink::{Sink, SinkExt};
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::auth::StartupHandler;
+use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::replication::{
-    CreateReplicationSlotResponse, IdentifySystemResponse, ReadReplicationSlotResponse,
-    BaseBackupCommand, ReplicationHandler, SlotType, StartReplicationCommand,
-    TimelineHistoryResponse,
-    send_copy_both_for_replication, send_primary_keepalive, send_xlog_data,
+    BaseBackupCommand, CreateReplicationSlotResponse, IdentifySystemResponse,
+    ReadReplicationSlotResponse, ReplicationHandler, SlotType, StartReplicationCommand,
+    TimelineHistoryResponse, send_copy_both_for_replication, send_primary_keepalive,
+    send_xlog_data,
 };
 use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers};
 use pgwire::error::{PgWireError, PgWireResult};
@@ -27,10 +27,7 @@ pub struct DummyReplicationHandler;
 impl NoopStartupHandler for DummyReplicationHandler {}
 
 impl ReplicationHandler for DummyReplicationHandler {
-    async fn on_identify_system<C>(
-        &self,
-        _client: &mut C,
-    ) -> PgWireResult<IdentifySystemResponse>
+    async fn on_identify_system<C>(&self, _client: &mut C) -> PgWireResult<IdentifySystemResponse>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
@@ -122,11 +119,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         ))
     }
 
-    async fn on_base_backup<C>(
-        &self,
-        _client: &mut C,
-        cmd: &BaseBackupCommand,
-    ) -> PgWireResult<()>
+    async fn on_base_backup<C>(&self, _client: &mut C, cmd: &BaseBackupCommand) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
         C::Error: Debug,
@@ -169,11 +162,7 @@ impl ReplicationHandler for DummyReplicationHandler {
         // Send a keepalive requesting a reply
         send_primary_keepalive(
             client,
-            &PrimaryKeepalive::new(
-                Lsn(start_lsn.as_u64() + 500),
-                0,
-                true,
-            ),
+            &PrimaryKeepalive::new(Lsn(start_lsn.as_u64() + 500), 0, true),
         )
         .await?;
 
@@ -266,6 +255,8 @@ async fn main_impl() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
-        tokio::task::spawn_local(async move { process_socket(incoming_socket.0, None, factory_ref).await });
+        tokio::task::spawn_local(async move {
+            process_socket(incoming_socket.0, None, factory_ref).await
+        });
     }
 }

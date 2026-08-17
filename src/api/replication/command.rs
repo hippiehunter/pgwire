@@ -238,10 +238,7 @@ fn parse_base_backup(tokens: &mut Tokenizer) -> Option<ReplicationCommand> {
 
     if rest.starts_with('(') {
         // v2 syntax: BASE_BACKUP (LABEL 'x', PROGRESS, CHECKPOINT 'fast', ...)
-        let inner = rest
-            .trim_start_matches('(')
-            .trim_end_matches(')')
-            .trim();
+        let inner = rest.trim_start_matches('(').trim_end_matches(')').trim();
         for opt in split_top_level_commas(inner) {
             let opt = opt.trim();
             if opt.is_empty() {

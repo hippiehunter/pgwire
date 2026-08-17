@@ -141,6 +141,10 @@ pub mod copy;
 pub mod data;
 /// Extended query messages, including request/response for parse, bind and etc.
 pub mod extendedquery;
+/// Logical replication event messages (inside XLogData payloads)
+pub mod logical_replication;
+/// Replication streaming messages (inside CopyData payloads)
+pub mod replication;
 /// General response messages
 pub mod response;
 /// Simple query messages, including descriptions
@@ -149,10 +153,6 @@ pub mod simplequery;
 pub mod startup;
 /// Termination messages
 pub mod terminate;
-/// Logical replication event messages (inside XLogData payloads)
-pub mod logical_replication;
-/// Replication streaming messages (inside CopyData payloads)
-pub mod replication;
 
 #[derive(Debug)]
 pub enum SslNegotiationMetaMessage {

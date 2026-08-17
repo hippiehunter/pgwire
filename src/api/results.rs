@@ -153,6 +153,8 @@ pub struct FieldInfo {
     // numeric precision/scale, temporal precision) is known.
     #[new(value = "-1")]
     type_modifier: i32,
+    #[new(value = "None")]
+    type_size: Option<i16>,
 }
 
 impl FieldInfo {
@@ -193,18 +195,33 @@ impl FieldInfo {
         self.type_modifier = type_modifier;
         self
     }
+
+    pub fn with_type_size(mut self, type_size: i16) -> Self {
+        self.type_size = Some(type_size);
+        self
+    }
 }
 
 impl From<&FieldInfo> for FieldDescription {
     fn from(fi: &FieldInfo) -> Self {
+        let type_size = fi.type_size.unwrap_or_else(|| match fi.datatype.oid() {
+            16 | 18 => 1,
+            21 => 2,
+            23 | 24 | 26 | 28 | 29 | 700 | 1082 => 4,
+            20 | 701 | 702 | 704 | 1083 | 1114 | 1184 => 8,
+            27 => 6,
+            703 | 1266 => 12,
+            1186 => 16,
+            19 => 64,
+            _ => -1,
+        });
         FieldDescription::new(
             fi.name.clone(),           // name
             fi.table_id.unwrap_or(0),  // table_id
             fi.column_id.unwrap_or(0), // column_id
             fi.datatype.oid(),         // type_id
-            // TODO: type size
-            0,
-            fi.type_modifier,          // type_modifier (atttypmod)
+            type_size,
+            fi.type_modifier, // type_modifier (atttypmod)
             fi.format.value(),
         )
     }

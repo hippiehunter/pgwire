@@ -257,15 +257,13 @@ impl ReplicationMessage {
                 let global_xmin_epoch = buf.get_u32();
                 let catalog_xmin = buf.get_u32();
                 let catalog_xmin_epoch = buf.get_u32();
-                Ok(ReplicationMessage::HotStandbyFeedback(
-                    HotStandbyFeedback {
-                        client_time,
-                        global_xmin,
-                        global_xmin_epoch,
-                        catalog_xmin,
-                        catalog_xmin_epoch,
-                    },
-                ))
+                Ok(ReplicationMessage::HotStandbyFeedback(HotStandbyFeedback {
+                    client_time,
+                    global_xmin,
+                    global_xmin_epoch,
+                    catalog_xmin,
+                    catalog_xmin_epoch,
+                }))
             }
             other => Err(PgWireError::InvalidReplicationMessage(format!(
                 "unknown replication message tag: 0x{other:02X}"

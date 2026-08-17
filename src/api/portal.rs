@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use async_lock::Mutex;
 use bytes::Bytes;
 use postgres_types::FromSqlOwned;
-use async_lock::Mutex;
 
 use crate::api::Type;
 use crate::api::results::QueryResponse;

@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use futures::{Sink, SinkExt};
 use async_lock::Mutex;
+use futures::{Sink, SinkExt};
 
 use crate::api::auth::Password;
 use crate::api::{ClientInfo, PgWireConnectionState};
